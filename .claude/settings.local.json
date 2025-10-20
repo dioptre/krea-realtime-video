@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git log --all --pretty=format:\"%h %s %ae\")",
+      "Bash(git log --pretty=format:\"%ae\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
