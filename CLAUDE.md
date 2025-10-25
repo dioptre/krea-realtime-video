@@ -24,7 +24,7 @@ modal run modal_app.py
 modal deploy modal_app.py
 ```
 
-You'll get: `https://your-username--krea-realtime-video-serve.modal.run`
+You'll get: `https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run`
 
 ### Test It
 
@@ -152,7 +152,7 @@ modal run modal_app.py
 modal logs krea-realtime-video
 
 # View in dashboard
-https://modal.com/apps/dioptre/main/deployed/krea-realtime-video
+https://modal.com/apps/YOUR_WORKSPACE/main/deployed/krea-realtime-video
 ```
 
 ### Out of memory
@@ -213,7 +213,7 @@ modal serve modal_app.py  # Temporary dev URL
 modal logs krea-realtime-video --follow
 
 # Check GPU usage in dashboard
-https://modal.com/apps/dioptre/main/deployed/krea-realtime-video
+https://modal.com/apps/YOUR_WORKSPACE/main/deployed/krea-realtime-video
 ```
 
 ---
@@ -279,7 +279,7 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - 107GB models cached in Modal
 
 ✅ **Deployed at:**
-https://dioptre--krea-realtime-video-serve.modal.run
+https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run
 
 ✅ **Performance:**
 - 11 fps on B200
