@@ -456,7 +456,7 @@
             <div class="action-row">
                 <div class="slider-block">
                     <label for="interpSteps">Blend Steps</label>
-                    <input id="interpSteps" type="range" min="1" max="16" value="4">
+                    <input id="interpSteps" type="range" min="1" max="16" value="6">
                     <span id="interpStepsValue" class="slider-value">4</span>
                 </div>
                 <div class="button-row">
@@ -486,7 +486,7 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="checkbox" id="horizontalMirrorToggle" style="width: auto;">
+                        <input type="checkbox" id="horizontalMirrorToggle" style="width: auto;" checked>
                         <span>Horizontal Mirror</span>
                     </label>
                 </div>
@@ -502,7 +502,7 @@
             <div id="denoisingStrengthContainer" class="field slider-field" style="display: none;">
                 <label for="denoisingStrength">Denoising Strength</label>
                 <div class="slider-row">
-                    <input id="denoisingStrength" type="range" min="0.0" max="1.0" step="0.05" value="0.55">
+                    <input id="denoisingStrength" type="range" min="0.0" max="1.0" step="0.05" value="0.45">
                     <span id="denoisingStrengthValue" class="slider-value">0.55</span>
                 </div>
             </div>
@@ -540,7 +540,7 @@
                 <div class="field slider-field">
                     <label for="numBlocks">Number of Blocks</label>
                     <div class="slider-row">
-                        <input id="numBlocks" type="range" min="1" max="10000" value="10">
+                        <input id="numBlocks" type="range" min="1" max="10000" value="813">
                         <span id="numBlocksValue" class="slider-value">10</span>
                     </div>
                 </div>
@@ -789,7 +789,7 @@
             let webcamCaptureInterval = null;
             let currentMode = 'text2video';
             let serverBgRemovalEnabled = false;
-            let horizontalMirrorEnabled = false;
+            let horizontalMirrorEnabled = true;
             let viewRotation = 0;  // Track view rotation in degrees
             let contentRotation = 0;  // Track content rotation in degrees
 
