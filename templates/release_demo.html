@@ -445,6 +445,18 @@
 
             <div class="field" id="webcamContainer" style="display: none;">
                 <video id="webcamPreview" autoplay playsinline style="display: none;"></video>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="bgRemovalToggle" style="width: auto;">
+                        <span>Remove Background (Server-Side RF-DETR)</span>
+                    </label>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="horizontalMirrorToggle" style="width: auto;">
+                        <span>Horizontal Mirror</span>
+                    </label>
+                </div>
                 <div class="slider-field">
                     <label for="webcamFps">Webcam Capture FPS</label>
                     <div class="slider-row">
@@ -718,10 +730,13 @@
             const webcamDisplayContainer = document.getElementById("webcamDisplayContainer");
             const webcamFpsInput = document.getElementById("webcamFps");
             const webcamFpsValue = document.getElementById("webcamFpsValue");
+            const bgRemovalToggle = document.getElementById("bgRemovalToggle");
 
             let webcamStream = null;
             let webcamCaptureInterval = null;
             let currentMode = 'text2video';
+            let serverBgRemovalEnabled = false;
+            let horizontalMirrorEnabled = false;
 
             // FPS tracking
             let fpsFrameCount = 0;
@@ -814,6 +829,19 @@
             webcamFpsInput.addEventListener("input", () => {
                 const value = String(Number(webcamFpsInput.value) || 4);
                 setText(webcamFpsValue, value);
+            });
+
+            // Background removal toggle
+            bgRemovalToggle.addEventListener("change", () => {
+                serverBgRemovalEnabled = bgRemovalToggle.checked;
+                log(serverBgRemovalEnabled ? "Server-side background removal enabled" : "Server-side background removal disabled");
+            });
+
+            // Horizontal mirror toggle
+            const horizontalMirrorToggle = document.getElementById("horizontalMirrorToggle");
+            horizontalMirrorToggle.addEventListener("change", () => {
+                horizontalMirrorEnabled = horizontalMirrorToggle.checked;
+                log(horizontalMirrorEnabled ? "Horizontal mirror enabled" : "Horizontal mirror disabled");
             });
 
             // Mode switching logic
@@ -1221,6 +1249,8 @@
                     payload.webcam_mode = true;
                     payload.webcam_fps = Number(webcamFpsInput.value);
                     payload.strength = Number(denoisingStrengthInput.value);
+                    payload.remove_background = serverBgRemovalEnabled;  // Server-side background removal flag
+                    payload.horizontal_mirror = horizontalMirrorEnabled;  // Horizontal mirror flag
 
                     // Start capturing and sending webcam frames
                     const webcamFps = Number(webcamFpsInput.value);

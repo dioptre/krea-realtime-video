@@ -56,6 +56,11 @@ image = (
         "transformers==4.54.1",
         "uvicorn==0.35.0",
     )
+    # Background removal (RF-DETR and YOLOv8)
+    .pip_install(
+        "ultralytics==8.3.29",
+        "roboflow==1.2.11",
+    )
     # Add local source code to the image (use script directory, not cwd)
     .add_local_dir(str(Path(__file__).parent), "/root/app")
 )

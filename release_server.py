@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 # Internal / self-forcing imports
 from v2v import encode_video_latent, get_denoising_schedule
 from utils.misc import AtomicCounter
+from background_removal import get_background_removal_processor
 
 # External imports
 from omegaconf import OmegaConf
@@ -341,6 +342,8 @@ class GenerateParams(BaseModel):
 
     webcam_mode: bool = False
     webcam_fps: int = 10
+    remove_background: bool = False  # Server-side background removal flag
+    horizontal_mirror: bool = False  # Horizontal mirror flag
     class Config:
         arbitrary_types_allowed = True
     
@@ -480,6 +483,22 @@ class GenerationSession:
                     frame = frame[frame.index(",") + 1:]
                 frame = base64.b64decode(frame)
             image = Image.open(BytesIO(frame)).convert("RGB")
+
+            # Apply server-side background removal if enabled
+            if self.params.remove_background:
+                try:
+                    processor = get_background_removal_processor("yolov8n-seg", device="cuda")
+                    if processor:
+                        image = processor.remove_background(image, bg_color=(0, 0, 0), confidence=0.5)
+                        log.info("Background removed from frame")
+                except Exception as e:
+                    log.warning(f"Background removal failed: {e}. Using original frame.")
+
+            # Apply horizontal mirror if enabled
+            if self.params.horizontal_mirror:
+                image = image.transpose(Image.FLIP_LEFT_RIGHT)
+                log.info("Frame mirrored horizontally")
+
             tensor = TF.to_tensor(image).to(dtype=torch.float16).pin_memory()
             with torch.cuda.stream(upload_stream):
                 tensor = tensor.to(self.gpu).sub_(0.5).mul_(2.0)
