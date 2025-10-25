@@ -129,7 +129,7 @@ with image.imports():
     # gpu=modal.gpu.H100(count=1),  # Likely ~7-9 fps, $3.95/hour (memory bottleneck)
     # gpu=modal.gpu.A100(count=1, size="80GB"),  # Likely ~6-8 fps, $2.50/hour
     volumes={"/models": models_volume},
-    timeout=3600,
+    timeout=28800,  # 8 hours for long sessions
     allow_concurrent_inputs=10,
     container_idle_timeout=300,
 )
