@@ -157,12 +157,26 @@ def load_transformer(config, meta_transformer=False):
     t_start = time.time()
 
     checkpoint_path = config.checkpoint_path
-    
+
     from utils.wan_wrapper import WanDiffusionWrapper
     t_import = time.time()
     log.debug(f"Transformer import took: {t_import - t_start:.2f}s")
-    
-    state_dict = load_file(checkpoint_path, device="cuda")
+
+    # Load checkpoint - handle both .safetensors and .pt formats
+    if checkpoint_path.endswith('.safetensors'):
+        state_dict = load_file(checkpoint_path, device="cuda")
+    else:
+        # .pt file - may contain EMA wrapper
+        checkpoint = torch.load(checkpoint_path, map_location="cuda", weights_only=False)
+        if "generator_ema" in checkpoint:
+            # Extract model from EMA wrapper (Self-Forcing checkpoints)
+            log.info("Loading model from EMA wrapper")
+            state_dict = checkpoint["generator_ema"]
+        elif "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+        else:
+            state_dict = checkpoint
+
     log.debug(f"Loading transformer state dict from {checkpoint_path}")
     if state_dict["model.blocks.0.self_attn.k.weight"].shape[0] == 1536:
         model_name = "Wan2.1-T2V-1.3B"
@@ -321,7 +335,7 @@ class GenerateParams(BaseModel):
     prompt: str
     width: int = 832
     height: int = 480
-    
+
     seed: int | None = None
     resume_latents: bytes | None = None
     strength: float = 1.0
@@ -344,6 +358,9 @@ class GenerateParams(BaseModel):
     webcam_fps: int = 10
     remove_background: bool = False  # Server-side background removal flag
     horizontal_mirror: bool = False  # Horizontal mirror flag
+
+    mode: str = "text2video"  # Mode: text2video, video2video, webcam
+    model: str = "14b"  # Model: 14b or 1.3b
     class Config:
         arbitrary_types_allowed = True
     
@@ -774,8 +791,44 @@ class GenerationSession:
         return id(self)
 
 def compile_models(models: Models):
-    models.vae_decoder = torch.compile(models.vae_decoder, fullgraph=True,) 
+    models.vae_decoder = torch.compile(models.vae_decoder, fullgraph=True,)
     models.transformer = torch.compile(models.transformer)
+
+# Model switching state
+_model_lock = threading.Lock()
+_current_model = "14b"
+
+def get_model_config_path(model: str) -> str:
+    """Get config path for a model version"""
+    if model == "1.3b":
+        return "configs/self_forcing_server.yaml"
+    else:
+        return "configs/self_forcing_server_14b.yaml"
+
+def ensure_model_loaded(app: FastAPI, model: str):
+    """Ensure the requested model is loaded, switching if necessary"""
+    global _current_model
+
+    if _current_model == model:
+        return  # Already loaded
+
+    with _model_lock:
+        # Double-check after acquiring lock
+        if _current_model == model:
+            return
+
+        # Unload current model to free GPU memory
+        log.info(f"Unloading model {_current_model}")
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Load new model
+        config_path = get_model_config_path(model)
+        log.info(f"Loading model {model} from {config_path}")
+        app.state.config = load_merge_config(config_path)
+        app.state.models = load_all(app.state.config)
+        _current_model = model
+        log.info(f"Model {model} loaded successfully")
 
 # SECTION - SERVER & HANDLING
 async def lifespan(app: FastAPI):
@@ -959,6 +1012,12 @@ async def ws_session(websocket: WebSocket, id: str, config: OmegaConf, models: M
             except ValidationError as e:
                 await websocket.send_json({"error": e.errors()})
                 continue
+        # Log model and mode selection
+        log.info(f"Session {id}: Model={params.model}, Mode={params.mode}")
+
+        # Ensure requested model is loaded (switches models if necessary)
+        ensure_model_loaded(app, params.model)
+
         params.block_on_frame = True
         if params.seed is None:
             params.seed = random.randint(0, 2**24 - 1)

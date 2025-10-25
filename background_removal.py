@@ -105,20 +105,30 @@ class BackgroundRemovalProcessor:
             confidence: Confidence threshold for detection (0.0-1.0)
 
         Returns:
-            PIL Image with background removed
+            PIL Image with background removed (same size as input)
         """
         if self.model is None:
             log.warning("No model loaded. Returning original image.")
             return image
+
+        # Store original size to ensure we return same dimensions
+        original_size = image.size  # (width, height)
 
         # Convert PIL to numpy array
         img_array = np.array(image)
 
         try:
             if "rf-detr" in self.model_type.lower():
-                return self._remove_bg_rf_detr(image, img_array, bg_color, confidence)
+                result = self._remove_bg_rf_detr(image, img_array, bg_color, confidence)
             else:
-                return self._remove_bg_yolov8(image, img_array, bg_color, confidence)
+                result = self._remove_bg_yolov8(image, img_array, bg_color, confidence)
+
+            # Ensure result is same size as input
+            if result.size != original_size:
+                log.warning(f"Result size {result.size} != original {original_size}, resizing")
+                result = result.resize(original_size, Image.LANCZOS)
+
+            return result
         except Exception as e:
             log.error(f"Background removal failed: {e}")
             return image

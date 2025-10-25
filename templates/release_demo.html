@@ -369,8 +369,26 @@
         <section class="viewer">
             <div id="videoDisplayContainer" style="display: flex; gap: 16px; flex-wrap: wrap;">
                 <div class="video-frame" style="flex: 1; min-width: 300px;">
-                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">Generated Output</div>
-                    <canvas id="videoCanvas" width="832" height="480"></canvas>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Generated Output</div>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px;">
+                                <input type="checkbox" id="fillScreenToggle" style="width: auto;">
+                                <span>Fill Screen</span>
+                            </label>
+                            <div style="font-size: 11px; color: var(--text-muted);">View:</div>
+                            <button id="rotateViewLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↶ L</button>
+                            <button id="rotateViewRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↷ R</button>
+                            <div style="font-size: 11px; color: var(--text-muted);">Content:</div>
+                            <button id="rotateContentLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↶ L</button>
+                            <button id="rotateContentRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↷ R</button>
+                        </div>
+                    </div>
+                    <div id="canvasContainer" style="display: inline-block; width: 100%; border-radius: 12px; overflow: hidden; background: #000;">
+                        <div id="canvasWrapper" style="transform: rotate(0deg); transform-origin: center; display: inline-block; width: 100%; cursor: pointer;">
+                            <canvas id="videoCanvas" width="832" height="480" style="width: 100%; height: auto; display: block; transform: rotate(0deg);"></canvas>
+                        </div>
+                    </div>
                 </div>
                 <div id="webcamDisplayContainer" class="video-frame" style="flex: 1; min-width: 300px; display: none;">
                     <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">Webcam Input</div>
@@ -395,6 +413,21 @@
                     <label for="playbackFps">Playback</label>
                     <input id="playbackFps" type="range" min="1" max="30" value="8">
                 </div>
+            </div>
+
+            <div class="field">
+                <label>Model</label>
+                <div style="display: flex; gap: 16px; margin-top: 10px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="radio" name="model" value="14b" checked style="width: auto;">
+                        <span>14B (Krea Realtime) - 11 fps, best quality</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="radio" name="model" value="1.3b" style="width: auto;">
+                        <span>1.3B (Self-Forcing) - faster, lower quality</span>
+                    </label>
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">💡 Switch models between generations. Server will reload the new model on next start.</div>
             </div>
 
             <div class="field">
@@ -489,11 +522,13 @@
             <div class="param-grid">
                 <div class="field">
                     <label for="width">Width (pixels)</label>
-                    <input id="width" type="number" min="64" step="8" value="832">
+                    <input id="width" type="number" min="832" max="832" step="8" value="832" disabled>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">MUST be 832 (model limitation)</div>
                 </div>
                 <div class="field">
                     <label for="height">Height (pixels)</label>
-                    <input id="height" type="number" min="64" step="8" value="480">
+                    <input id="height" type="number" min="480" max="480" step="8" value="480" disabled>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">MUST be 480 (model limitation)</div>
                 </div>
                 <div class="field">
                     <label for="seed">Seed (optional)</label>
@@ -687,6 +722,24 @@
             const widthInput = document.getElementById("width");
             const heightInput = document.getElementById("height");
             const seedInput = document.getElementById("seed");
+
+            // Only 832x480 is supported - force it
+            const forceResolution = () => {
+                if (Number(widthInput.value) !== 832 || Number(heightInput.value) !== 480) {
+                    log("⚠ Only 832x480 is supported by this model. Resetting to 832x480.");
+                    widthInput.value = 832;
+                    heightInput.value = 480;
+                    widthInput.style.borderColor = "#ff6b6b";
+                    heightInput.style.borderColor = "#ff6b6b";
+                    setTimeout(() => {
+                        widthInput.style.borderColor = "";
+                        heightInput.style.borderColor = "";
+                    }, 2000);
+                }
+            };
+
+            widthInput.addEventListener("change", forceResolution);
+            heightInput.addEventListener("change", forceResolution);
             const numBlocksInput = document.getElementById("numBlocks");
             const numBlocksValue = document.getElementById("numBlocksValue");
             const numBlocksStatusValue = document.getElementById("numBlocksStatusValue");
@@ -737,6 +790,8 @@
             let currentMode = 'text2video';
             let serverBgRemovalEnabled = false;
             let horizontalMirrorEnabled = false;
+            let viewRotation = 0;  // Track view rotation in degrees
+            let contentRotation = 0;  // Track content rotation in degrees
 
             // FPS tracking
             let fpsFrameCount = 0;
@@ -842,6 +897,109 @@
             horizontalMirrorToggle.addEventListener("change", () => {
                 horizontalMirrorEnabled = horizontalMirrorToggle.checked;
                 log(horizontalMirrorEnabled ? "Horizontal mirror enabled" : "Horizontal mirror disabled");
+            });
+
+            // Canvas rotation and fullscreen controls
+            const rotateViewLeftBtn = document.getElementById("rotateViewLeftBtn");
+            const rotateViewRightBtn = document.getElementById("rotateViewRightBtn");
+            const rotateContentLeftBtn = document.getElementById("rotateContentLeftBtn");
+            const rotateContentRightBtn = document.getElementById("rotateContentRightBtn");
+            const fillScreenToggle = document.getElementById("fillScreenToggle");
+            const canvasContainer = document.getElementById("canvasContainer");
+            const canvasWrapper = document.getElementById("canvasWrapper");
+            const videoCanvas = document.getElementById("videoCanvas");
+            let fillScreenEnabled = false;
+
+            const updateRotations = () => {
+                // View rotation rotates the entire container
+                canvasContainer.style.transform = `rotate(${viewRotation}deg)`;
+                // Content rotation rotates just the canvas
+                videoCanvas.style.transform = `rotate(${contentRotation}deg)`;
+            };
+
+            const updateFillScreen = () => {
+                if (fillScreenEnabled) {
+                    // Fill screen with cover behavior (no distortion, fills available space)
+                    canvasContainer.style.position = 'fixed';
+                    canvasContainer.style.top = '0';
+                    canvasContainer.style.left = '0';
+                    canvasContainer.style.width = '100vw';
+                    canvasContainer.style.height = '100vh';
+                    canvasContainer.style.zIndex = '10000';
+                    canvasContainer.style.borderRadius = '0';
+                    canvasContainer.style.margin = '0';
+                    canvasContainer.style.padding = '0';
+
+                    videoCanvas.style.width = '100%';
+                    videoCanvas.style.height = '100%';
+                    videoCanvas.style.objectFit = 'cover';
+                    videoCanvas.style.display = 'block';
+
+                    log("Fill screen enabled");
+                } else {
+                    // Return to normal layout
+                    canvasContainer.style.position = 'static';
+                    canvasContainer.style.width = '100%';
+                    canvasContainer.style.height = 'auto';
+                    canvasContainer.style.zIndex = 'auto';
+                    canvasContainer.style.borderRadius = '12px';
+
+                    videoCanvas.style.width = '100%';
+                    videoCanvas.style.height = 'auto';
+                    videoCanvas.style.objectFit = 'contain';
+
+                    log("Fill screen disabled");
+                }
+            };
+
+            rotateViewLeftBtn.addEventListener("click", () => {
+                viewRotation = (viewRotation - 90) % 360;
+                updateRotations();
+                log(`View rotated: ${viewRotation}°`);
+            });
+
+            rotateViewRightBtn.addEventListener("click", () => {
+                viewRotation = (viewRotation + 90) % 360;
+                updateRotations();
+                log(`View rotated: ${viewRotation}°`);
+            });
+
+            rotateContentLeftBtn.addEventListener("click", () => {
+                contentRotation = (contentRotation - 90) % 360;
+                updateRotations();
+                log(`Content rotated: ${contentRotation}°`);
+            });
+
+            rotateContentRightBtn.addEventListener("click", () => {
+                contentRotation = (contentRotation + 90) % 360;
+                updateRotations();
+                log(`Content rotated: ${contentRotation}°`);
+            });
+
+            // Click canvas to toggle fill screen
+            videoCanvas.addEventListener("click", () => {
+                fillScreenEnabled = !fillScreenEnabled;
+                fillScreenToggle.checked = fillScreenEnabled;
+                updateFillScreen();
+            });
+
+            // Fill screen checkbox toggle
+            fillScreenToggle.addEventListener("change", () => {
+                fillScreenEnabled = fillScreenToggle.checked;
+                updateFillScreen();
+            });
+
+            // Model selection
+            let currentModel = '14b';
+            const modelRadios = document.querySelectorAll('input[name="model"]');
+
+            modelRadios.forEach(radio => {
+                radio.addEventListener("change", (e) => {
+                    currentModel = e.target.value;
+                    const modelName = currentModel === '14b' ? 'Krea Realtime 14B (11 fps)' : 'Self-Forcing 1.3B (faster)';
+                    log(`Model selected: ${modelName}`);
+                    updateStatus(`✓ Model changed to ${modelName}. Will load on next generation.`);
+                });
             });
 
             // Mode switching logic
@@ -1235,6 +1393,8 @@
                 heightInput.value = height;
 
                 const payload = {
+                    mode: currentMode,
+                    model: currentModel,
                     prompt: prompt,
                     width: width,
                     height: height,

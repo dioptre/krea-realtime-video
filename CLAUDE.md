@@ -10,7 +10,7 @@ Complete guide for deploying Krea Realtime Video with PR #3 webcam support on Mo
 - Modal account: https://modal.com
 - Python 3.11+
 
-### Deploy in 3 Steps
+### Deploy in 4 Steps
 
 ```bash
 # 1. Install and authenticate Modal
@@ -25,6 +25,26 @@ modal deploy modal_app.py
 ```
 
 You'll get: `https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run`
+
+### Update Deployment (with code changes)
+
+When you modify the code and want to redeploy:
+
+```bash
+# Stop the current deployment
+modal app stop krea-realtime-video
+
+# Wait a moment, then redeploy
+sleep 3
+modal deploy modal_app.py
+```
+
+Or do it all at once:
+```bash
+modal app stop krea-realtime-video && sleep 3 && modal deploy modal_app.py
+```
+
+**Note:** This forces a clean restart. Useful when the UI (HTML/JS) doesn't update or you need to clear cached state.
 
 ### Test It
 
@@ -41,6 +61,14 @@ You'll get: `https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run`
 4. Num Blocks: 1000 (for continuous transformation)
 5. Click "Start Generation"
 6. Watch real-time transformation at ~11 fps!
+
+**Dual-Model Support (switch between generations):**
+1. Select your model from the **"Model"** dropdown:
+   - **14B (Krea Realtime)** - Best quality, 11 fps
+   - **1.3B (Self-Forcing)** - Faster, lower quality
+2. Start a generation with your chosen model
+3. On the **next generation**, you can select a **different model** and the server will automatically reload it!
+4. This allows you to compare quality vs. speed between generations
 
 ---
 
@@ -254,10 +282,10 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - `.modalignore` - Deployment exclusions
 
 **App modifications:**
-- `release_server.py` - Fixed torch.load for .pth files, dynamo config
+- `release_server.py` - Fixed torch.load for .pth files, dynamo config, **added dynamic model switching**
 - `utils/wan_wrapper.py` - Added local_files_only, torch.load fix
 - `wan/modules/attention.py` - Fixed Flash Attention imports
-- `templates/release_demo.html` - Fixed msgpack CDN, added webcam UI
+- `templates/release_demo.html` - Fixed msgpack CDN, added webcam UI, **added model selector**
 
 ---
 
@@ -277,13 +305,21 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - Webcam real-time transformation (PR #3)
 - Text-to-video and video-to-video modes
 - 107GB models cached in Modal
+- **Dual-model support** (14B + 1.3B, switchable between generations)
 
 ✅ **Deployed at:**
 https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run
 
 ✅ **Performance:**
-- 11 fps on B200
+- 14B Model: 11 fps on B200, best quality
+- 1.3B Model: Faster inference, lower quality
+- Switch models between generations (auto-reload)
 - Continuous generation with num_blocks=1000
-- Safe resolutions: 832×480, 640×480, 512×512
+- Resolution locked to 832×480 (model requirement)
+
+✅ **Model Switching:**
+- Select 14B or 1.3B from the UI
+- Server automatically loads on next generation
+- Compare quality vs. speed between runs
 
 🚀 **Ready to use!**
