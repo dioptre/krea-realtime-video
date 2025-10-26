@@ -358,6 +358,8 @@ class GenerateParams(BaseModel):
     webcam_fps: int = 10
     remove_background: bool = False  # Server-side background removal flag
     horizontal_mirror: bool = False  # Horizontal mirror flag
+    drop_frames: bool = True  # Drop old frames to prevent lag
+    max_queue_multiplier: float = 2.0  # Max queue size multiplier (e.g., 2.0 = 2x needed frames)
 
     mode: str = "text2video"  # Mode: text2video, video2video, webcam
     model: str = "14b"  # Model: 14b or 1.3b
@@ -540,6 +542,7 @@ class GenerationSession:
                 return None
             time.sleep(0.01)  # Check every 10ms to avoid busy-spinning
 
+        # Drain entire queue to get all available frames
         frame_list = []
         while not self.frame_queue.empty():
             try:
@@ -549,6 +552,16 @@ class GenerationSession:
 
         if len(frame_list) < num_frames_to_encode:
             return None
+
+        # IMPORTANT: Only use the most recent frames to prevent lag buildup
+        # If we have more frames than needed, drop the oldest ones (if enabled)
+        if self.params.drop_frames:
+            max_frames = int(num_frames_to_encode * self.params.max_queue_multiplier)
+            if len(frame_list) > max_frames:
+                # Keep only the most recent frames
+                dropped_count = len(frame_list) - max_frames
+                log.info(f"Dropping {dropped_count} old frames to prevent lag (queue size was {len(frame_list)}, max={max_frames})")
+                frame_list = frame_list[-max_frames:]
 
         # Resample to target number of frames for temporal spacing
         frames_to_encode = resample_array(frame_list, num_frames_to_encode)

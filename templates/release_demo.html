@@ -502,6 +502,20 @@
                         <span id="webcamFpsValue" class="slider-value">8</span>
                     </div>
                 </div>
+                <div style="display: flex; align-items: center; gap: 8px; margin-top: 16px; margin-bottom: 16px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="dropFramesToggle" style="width: auto;" checked>
+                        <span>Drop Old Frames (Prevent Lag)</span>
+                    </label>
+                </div>
+                <div class="slider-field">
+                    <label for="maxQueueMultiplier">Max Queue Size (×needed)</label>
+                    <div class="slider-row">
+                        <input id="maxQueueMultiplier" type="range" min="1" max="5" step="0.5" value="2">
+                        <span id="maxQueueMultiplierValue" class="slider-value">2</span>
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Lower = less lag, higher = smoother</div>
+                </div>
             </div>
 
             <div id="denoisingStrengthContainer" class="field slider-field" style="display: none;">
@@ -923,6 +937,23 @@
             webcamFpsInput.addEventListener("input", () => {
                 const value = String(Number(webcamFpsInput.value) || 4);
                 setText(webcamFpsValue, value);
+            });
+
+            // Frame dropping controls
+            const dropFramesToggle = document.getElementById("dropFramesToggle");
+            const maxQueueMultiplierInput = document.getElementById("maxQueueMultiplier");
+            const maxQueueMultiplierValue = document.getElementById("maxQueueMultiplierValue");
+            let dropFramesEnabled = true;
+            let maxQueueMultiplier = 2.0;
+
+            maxQueueMultiplierInput.addEventListener("input", () => {
+                maxQueueMultiplier = Number(maxQueueMultiplierInput.value);
+                setText(maxQueueMultiplierValue, String(maxQueueMultiplier));
+            });
+
+            dropFramesToggle.addEventListener("change", () => {
+                dropFramesEnabled = dropFramesToggle.checked;
+                log(dropFramesEnabled ? "Frame dropping enabled" : "Frame dropping disabled");
             });
 
             // Background removal toggle
@@ -1543,6 +1574,8 @@
                     payload.strength = Number(denoisingStrengthInput.value);
                     payload.remove_background = serverBgRemovalEnabled;  // Server-side background removal flag
                     payload.horizontal_mirror = horizontalMirrorEnabled;  // Horizontal mirror flag
+                    payload.drop_frames = dropFramesEnabled;  // Frame dropping flag
+                    payload.max_queue_multiplier = maxQueueMultiplier;  // Max queue size multiplier
 
                     // Start capturing and sending webcam frames
                     const webcamFps = Number(webcamFpsInput.value);
