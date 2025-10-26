@@ -377,17 +377,15 @@
                                 <span>Fill Screen</span>
                             </label>
                             <button id="browserFullscreenBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">⛶ Fullscreen</button>
-                            <div style="font-size: 11px; color: var(--text-muted);">View:</div>
-                            <button id="rotateViewLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↶ L</button>
-                            <button id="rotateViewRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↷ R</button>
-                            <div style="font-size: 11px; color: var(--text-muted);">Content:</div>
-                            <button id="rotateContentLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↶ L</button>
-                            <button id="rotateContentRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↷ R</button>
+                            <button id="rotateViewLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);" title="Rotate View Left">VL</button>
+                            <button id="rotateViewRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);" title="Rotate View Right">VR</button>
+                            <button id="rotateContentLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);" title="Rotate Content Left">CL</button>
+                            <button id="rotateContentRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);" title="Rotate Content Right">CR</button>
                         </div>
                     </div>
-                    <div id="canvasContainer" style="display: inline-block; width: 100%; border-radius: 12px; overflow: hidden; background: #000;">
-                        <div id="canvasWrapper" style="transform: rotate(0deg); transform-origin: center; display: inline-block; width: 100%; cursor: pointer;">
-                            <canvas id="videoCanvas" width="832" height="480" style="width: 100%; height: auto; display: block; transform: rotate(0deg);"></canvas>
+                    <div id="canvasContainer" style="display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 16/9; border-radius: 12px; overflow: hidden; background: #000; position: relative; transition: transform 0.3s ease;">
+                        <div id="canvasWrapper" style="transform-origin: center; cursor: pointer; width: 100%;">
+                            <canvas id="videoCanvas" width="832" height="480" style="width: 100%; height: auto; display: block; transition: transform 0.3s ease;"></canvas>
                         </div>
                     </div>
                 </div>
@@ -529,13 +527,15 @@
             <div class="param-grid">
                 <div class="field">
                     <label for="width">Width (pixels)</label>
-                    <input id="width" type="number" min="832" max="832" step="8" value="832" disabled>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">MUST be 832 (model limitation)</div>
+                    <input id="width" type="number" min="480" max="832" step="8" value="832">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">832×480 or 480×832</div>
                 </div>
                 <div class="field">
                     <label for="height">Height (pixels)</label>
-                    <input id="height" type="number" min="480" max="480" step="8" value="480" disabled>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">MUST be 480 (model limitation)</div>
+                    <input id="height" type="number" min="480" max="832" step="8" value="480">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                        <button id="flipOrientationBtn" type="button" style="padding: 4px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Flip to Portrait</button>
+                    </div>
                 </div>
                 <div class="field">
                     <label for="seed">Seed (optional)</label>
@@ -730,10 +730,15 @@
             const heightInput = document.getElementById("height");
             const seedInput = document.getElementById("seed");
 
-            // Only 832x480 is supported - force it
+            // Support 832x480 (landscape) and 480x832 (portrait)
             const forceResolution = () => {
-                if (Number(widthInput.value) !== 832 || Number(heightInput.value) !== 480) {
-                    log("⚠ Only 832x480 is supported by this model. Resetting to 832x480.");
+                const w = Number(widthInput.value);
+                const h = Number(heightInput.value);
+                const isLandscape = (w === 832 && h === 480);
+                const isPortrait = (w === 480 && h === 832);
+
+                if (!isLandscape && !isPortrait) {
+                    log("⚠ Only 832×480 (landscape) or 480×832 (portrait) is supported. Resetting to 832×480.");
                     widthInput.value = 832;
                     heightInput.value = 480;
                     widthInput.style.borderColor = "#ff6b6b";
@@ -747,6 +752,30 @@
 
             widthInput.addEventListener("change", forceResolution);
             heightInput.addEventListener("change", forceResolution);
+
+            // Flip orientation button
+            const flipOrientationBtn = document.getElementById("flipOrientationBtn");
+            flipOrientationBtn.addEventListener("click", () => {
+                const currentWidth = Number(widthInput.value);
+                const currentHeight = Number(heightInput.value);
+
+                // Swap width and height
+                widthInput.value = currentHeight;
+                heightInput.value = currentWidth;
+
+                // Update button text
+                if (currentWidth === 832 && currentHeight === 480) {
+                    flipOrientationBtn.textContent = "🔄 Flip to Landscape";
+                    log("Switched to portrait mode (480×832)");
+                } else {
+                    flipOrientationBtn.textContent = "🔄 Flip to Portrait";
+                    log("Switched to landscape mode (832×480)");
+                }
+
+                // Update canvas dimensions
+                videoCanvas.width = Number(widthInput.value);
+                videoCanvas.height = Number(heightInput.value);
+            });
             const numBlocksInput = document.getElementById("numBlocks");
             const numBlocksValue = document.getElementById("numBlocksValue");
             const numBlocksStatusValue = document.getElementById("numBlocksStatusValue");
@@ -921,10 +950,19 @@
             let fillScreenEnabled = false;
 
             const updateRotations = () => {
-                // View rotation rotates the entire container
-                canvasContainer.style.transform = `rotate(${viewRotation}deg)`;
-                // Content rotation rotates just the canvas
-                videoCanvas.style.transform = `rotate(${contentRotation}deg)`;
+                // View rotation rotates the entire container with scaling to fit
+                const viewRotNormalized = Math.abs(viewRotation % 360);
+                const isViewRotated90 = (viewRotNormalized === 90 || viewRotNormalized === 270);
+
+                // Scale down when rotated 90/270 degrees to fit in container (aspect ratio flip)
+                const viewScale = isViewRotated90 ? 0.577 : 1; // 0.577 ≈ 9/16 (height/width ratio)
+                canvasContainer.style.transform = `rotate(${viewRotation}deg) scale(${viewScale})`;
+
+                // Content rotation rotates just the canvas with scaling
+                const contentRotNormalized = Math.abs(contentRotation % 360);
+                const isContentRotated90 = (contentRotNormalized === 90 || contentRotNormalized === 270);
+                const contentScale = isContentRotated90 ? 0.577 : 1;
+                videoCanvas.style.transform = `rotate(${contentRotation}deg) scale(${contentScale})`;
             };
 
             const updateFillScreen = () => {
