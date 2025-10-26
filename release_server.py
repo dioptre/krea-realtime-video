@@ -509,14 +509,12 @@ class GenerationSession:
                     processor = get_background_removal_processor("yolov8n-seg", device="cuda")
                     if processor:
                         image = processor.remove_background(image, bg_color=(0, 0, 0), confidence=0.5)
-                        log.info("Background removed from frame")
                 except Exception as e:
                     log.warning(f"Background removal failed: {e}. Using original frame.")
 
             # Apply horizontal mirror if enabled
             if self.params.horizontal_mirror:
                 image = image.transpose(Image.FLIP_LEFT_RIGHT)
-                log.info("Frame mirrored horizontally")
 
             tensor = TF.to_tensor(image).to(dtype=torch.float16).pin_memory()
             with torch.cuda.stream(upload_stream):
