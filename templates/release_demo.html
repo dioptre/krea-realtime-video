@@ -376,6 +376,7 @@
                                 <input type="checkbox" id="fillScreenToggle" style="width: auto;">
                                 <span>Fill Screen</span>
                             </label>
+                            <button id="browserFullscreenBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">⛶ Fullscreen</button>
                             <div style="font-size: 11px; color: var(--text-muted);">View:</div>
                             <button id="rotateViewLeftBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↶ L</button>
                             <button id="rotateViewRightBtn" style="padding: 6px 12px; font-size: 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; cursor: pointer; color: var(--text-primary);">↷ R</button>
@@ -478,6 +479,12 @@
 
             <div class="field" id="webcamContainer" style="display: none;">
                 <video id="webcamPreview" autoplay playsinline style="display: none;"></video>
+                <div class="field" style="margin-bottom: 16px;">
+                    <label for="webcamSelector">Camera</label>
+                    <select id="webcamSelector" style="width: 100%; padding: 8px; background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; font-family: inherit;">
+                        <option value="">Loading cameras...</option>
+                    </select>
+                </div>
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
                     <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input type="checkbox" id="bgRemovalToggle" style="width: auto;">
@@ -784,9 +791,12 @@
             const webcamFpsInput = document.getElementById("webcamFps");
             const webcamFpsValue = document.getElementById("webcamFpsValue");
             const bgRemovalToggle = document.getElementById("bgRemovalToggle");
+            const webcamSelector = document.getElementById("webcamSelector");
 
             let webcamStream = null;
             let webcamCaptureInterval = null;
+            let availableCameras = [];
+            let selectedCameraId = null;
             let currentMode = 'text2video';
             let serverBgRemovalEnabled = false;
             let horizontalMirrorEnabled = true;
@@ -989,6 +999,37 @@
                 updateFillScreen();
             });
 
+            // Browser fullscreen button
+            const browserFullscreenBtn = document.getElementById("browserFullscreenBtn");
+
+            browserFullscreenBtn.addEventListener("click", () => {
+                if (!document.fullscreenElement) {
+                    // Enter fullscreen
+                    canvasContainer.requestFullscreen().then(() => {
+                        browserFullscreenBtn.textContent = "⛶ Exit Fullscreen";
+                        log("Entered browser fullscreen");
+                    }).catch(err => {
+                        console.error("Error entering fullscreen:", err);
+                        updateStatus("Could not enter fullscreen: " + err.message);
+                    });
+                } else {
+                    // Exit fullscreen
+                    document.exitFullscreen().then(() => {
+                        browserFullscreenBtn.textContent = "⛶ Fullscreen";
+                        log("Exited browser fullscreen");
+                    });
+                }
+            });
+
+            // Update button text when fullscreen changes (e.g., user presses ESC)
+            document.addEventListener("fullscreenchange", () => {
+                if (!document.fullscreenElement) {
+                    browserFullscreenBtn.textContent = "⛶ Fullscreen";
+                } else {
+                    browserFullscreenBtn.textContent = "⛶ Exit Fullscreen";
+                }
+            });
+
             // Model selection
             let currentModel = '14b';
             const modelRadios = document.querySelectorAll('input[name="model"]');
@@ -1008,6 +1049,18 @@
                     currentMode = e.target.value;
                     updateUIForMode();
                 });
+            });
+
+            // Webcam selector change event
+            webcamSelector.addEventListener("change", async (e) => {
+                selectedCameraId = e.target.value;
+                log(`Camera changed to: ${e.target.options[e.target.selectedIndex].text}`);
+
+                // If webcam is already running, restart it with the new camera
+                if (webcamStream) {
+                    stopWebcam();
+                    await startWebcam();
+                }
             });
 
             function updateUIForMode() {
@@ -1039,18 +1092,59 @@
             }
 
             // Webcam control functions
+            async function enumerateCameras() {
+                try {
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    availableCameras = devices.filter(device => device.kind === 'videoinput');
+
+                    // Populate the selector
+                    webcamSelector.innerHTML = '';
+                    availableCameras.forEach((camera, index) => {
+                        const option = document.createElement('option');
+                        option.value = camera.deviceId;
+                        option.textContent = camera.label || `Camera ${index + 1}`;
+                        webcamSelector.appendChild(option);
+                    });
+
+                    // Select first camera by default
+                    if (availableCameras.length > 0) {
+                        selectedCameraId = availableCameras[0].deviceId;
+                        webcamSelector.value = selectedCameraId;
+                        log(`Found ${availableCameras.length} camera(s)`);
+                    } else {
+                        webcamSelector.innerHTML = '<option value="">No cameras found</option>';
+                        log("No cameras found");
+                    }
+                } catch (error) {
+                    console.error("Error enumerating cameras:", error);
+                    webcamSelector.innerHTML = '<option value="">Error loading cameras</option>';
+                }
+            }
+
             async function startWebcam() {
                 try {
-                    webcamStream = await navigator.mediaDevices.getUserMedia({
+                    const constraints = {
                         video: {
                             width: { ideal: 832 },
                             height: { ideal: 480 }
                         }
-                    });
+                    };
+
+                    // Use selected camera if available
+                    if (selectedCameraId) {
+                        constraints.video.deviceId = { exact: selectedCameraId };
+                    }
+
+                    webcamStream = await navigator.mediaDevices.getUserMedia(constraints);
                     // Set stream for both the hidden capture element and the visible display
                     webcamPreview.srcObject = webcamStream;
                     webcamDisplayPreview.srcObject = webcamStream;
                     log("Webcam started");
+
+                    // After getting permission, enumerate cameras to get proper labels (Firefox needs this)
+                    if (availableCameras.length === 0 || !availableCameras[0].label) {
+                        await enumerateCameras();
+                    }
                 } catch (error) {
                     console.error("Error accessing webcam:", error);
                     updateStatus("Failed to access webcam: " + error.message);
