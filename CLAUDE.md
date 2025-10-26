@@ -92,6 +92,10 @@ modal app stop krea-realtime-video && sleep 3 && modal deploy modal_app.py
 - **Video-to-Video**: Transform uploaded videos
 - **WebSocket Streaming**: Real-time frame delivery
 - **Side-by-side Display**: Input + output simultaneously
+- **Background Removal**: YOLOv8n-seg for real-time green screen (webcam mode)
+- **Multiple Cameras**: Select from available webcams
+- **Frame Dropping**: Configurable lag prevention for long sessions
+- **Portrait/Landscape**: Flip between 832×480 and 480×832
 
 ---
 
@@ -132,6 +136,30 @@ For **continuous webcam transformation**:
 - **Denoising Strength**: 0.6-0.8
 - **Webcam FPS**: 15-30
 - **Resolution**: 640×480 or 832×480
+
+### Background Removal (Webcam Mode)
+
+**Server-side green screen using YOLOv8n-seg:**
+- Enable with "Remove Background" checkbox in webcam mode
+- Detects person and replaces background with black
+- Minimal performance impact: ~5-10ms per frame
+- Auto-downloads model (~27MB) on first use
+- Confidence threshold: 0.5 (adjustable in code)
+
+**Performance:**
+- Without BG removal: 11 fps
+- With BG removal: 8-10 fps
+- Model: YOLOv8n-seg (fast, real-time)
+- GPU memory: ~500MB additional
+
+### Frame Dropping (Lag Prevention)
+
+**Prevent lag buildup during long webcam sessions:**
+- Enable "Drop Old Frames" checkbox (default: ON)
+- Adjust "Max Queue Size" slider (1-5×, default: 2×)
+- Lower = less lag, more aggressive dropping
+- Higher = smoother motion, but more lag if can't keep up
+- Server logs show when frames are dropped
 
 ---
 
@@ -201,6 +229,27 @@ https://modal.com/apps/YOUR_WORKSPACE/main/deployed/krea-realtime-video
 - Verify B200 GPU is active (check Modal dashboard)
 - Lower resolution for faster generation
 - Reduce num_blocks for quicker completion
+
+### Background removal issues
+**"Background removal failed" in logs:**
+- YOLOv8n-seg model failed to load
+- Check GPU memory (need ~500MB)
+- Disable background removal for session if persistent
+
+**Black frames or person removed:**
+- Model confidence too high/low
+- Adjust in `release_server.py` line 511: `confidence=0.5`
+- Lower (0.3) = more aggressive, Higher (0.7) = stricter
+
+**Slow with background removal:**
+- Model processing bottleneck
+- Disable feature or use faster model
+- Check B200 not busy with other tasks
+
+### Lag in long webcam sessions
+- Enable "Drop Old Frames" checkbox
+- Lower "Max Queue Size" to 1-1.5× for aggressive dropping
+- Check Modal logs for frame dropping messages
 
 ---
 
@@ -282,10 +331,12 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - `.modalignore` - Deployment exclusions
 
 **App modifications:**
-- `release_server.py` - Fixed torch.load for .pth files, dynamo config, **added dynamic model switching**
+- `release_server.py` - Dynamic model switching, background removal, frame dropping, horizontal mirror
 - `utils/wan_wrapper.py` - Added local_files_only, torch.load fix
 - `wan/modules/attention.py` - Fixed Flash Attention imports
-- `templates/release_demo.html` - Fixed msgpack CDN, added webcam UI, **added model selector**
+- `templates/release_demo.html` - Webcam UI, model selector, camera selector, frame dropping controls, portrait/landscape flip
+- `background_removal.py` - YOLOv8n-seg background removal processor
+- `modal_app.py` - Added ultralytics, roboflow dependencies
 
 ---
 
@@ -306,16 +357,21 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - Text-to-video and video-to-video modes
 - 107GB models cached in Modal
 - **Dual-model support** (14B + 1.3B, switchable between generations)
+- **Background removal** (YOLOv8n-seg, real-time green screen)
+- **Multiple camera selection** (Firefox & Chrome compatible)
+- **Frame dropping controls** (prevent lag in long sessions)
+- **Portrait/landscape flip** (832×480 ↔ 480×832)
 
 ✅ **Deployed at:**
 https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run
 
 ✅ **Performance:**
-- 14B Model: 11 fps on B200, best quality
+- 14B Model: 11 fps on B200, best quality (8-10 fps with background removal)
 - 1.3B Model: Faster inference, lower quality
 - Switch models between generations (auto-reload)
 - Continuous generation with num_blocks=1000
-- Resolution locked to 832×480 (model requirement)
+- Resolutions: 832×480 (landscape) or 480×832 (portrait)
+- Background removal overhead: ~5-10ms per frame
 
 ✅ **Model Switching:**
 - Select 14B or 1.3B from the UI
