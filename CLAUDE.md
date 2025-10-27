@@ -10,7 +10,7 @@ Complete guide for deploying Krea Realtime Video with PR #3 webcam support on Mo
 - Modal account: https://modal.com
 - Python 3.11+
 
-### Deploy in 3 Steps
+### Deploy in 4 Steps
 
 ```bash
 # 1. Install and authenticate Modal
@@ -25,6 +25,26 @@ modal deploy modal_app.py
 ```
 
 You'll get: `https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run`
+
+### Update Deployment (with code changes)
+
+When you modify the code and want to redeploy:
+
+```bash
+# Stop the current deployment
+modal app stop krea-realtime-video
+
+# Wait a moment, then redeploy
+sleep 3
+modal deploy modal_app.py
+```
+
+Or do it all at once:
+```bash
+modal app stop krea-realtime-video && sleep 3 && modal deploy modal_app.py
+```
+
+**Note:** This forces a clean restart. Useful when the UI (HTML/JS) doesn't update or you need to clear cached state.
 
 ### Test It
 
@@ -41,6 +61,14 @@ You'll get: `https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run`
 4. Num Blocks: 1000 (for continuous transformation)
 5. Click "Start Generation"
 6. Watch real-time transformation at ~11 fps!
+
+**Dual-Model Support (switch between generations):**
+1. Select your model from the **"Model"** dropdown:
+   - **14B (Krea Realtime)** - Best quality, 11 fps
+   - **1.3B (Self-Forcing)** - Faster, lower quality
+2. Start a generation with your chosen model
+3. On the **next generation**, you can select a **different model** and the server will automatically reload it!
+4. This allows you to compare quality vs. speed between generations
 
 ---
 
@@ -64,6 +92,10 @@ You'll get: `https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run`
 - **Video-to-Video**: Transform uploaded videos
 - **WebSocket Streaming**: Real-time frame delivery
 - **Side-by-side Display**: Input + output simultaneously
+- **Background Removal**: YOLOv8n-seg for real-time green screen (webcam mode)
+- **Multiple Cameras**: Select from available webcams
+- **Frame Dropping**: Configurable lag prevention for long sessions
+- **Portrait/Landscape**: Flip between 832×480 and 480×832
 
 ---
 
@@ -104,6 +136,30 @@ For **continuous webcam transformation**:
 - **Denoising Strength**: 0.6-0.8
 - **Webcam FPS**: 15-30
 - **Resolution**: 640×480 or 832×480
+
+### Background Removal (Webcam Mode)
+
+**Server-side green screen using YOLOv8n-seg:**
+- Enable with "Remove Background" checkbox in webcam mode
+- Detects person and replaces background with black
+- Minimal performance impact: ~5-10ms per frame
+- Auto-downloads model (~27MB) on first use
+- Confidence threshold: 0.5 (adjustable in code)
+
+**Performance:**
+- Without BG removal: 11 fps
+- With BG removal: 8-10 fps
+- Model: YOLOv8n-seg (fast, real-time)
+- GPU memory: ~500MB additional
+
+### Frame Dropping (Lag Prevention)
+
+**Prevent lag buildup during long webcam sessions:**
+- Enable "Drop Old Frames" checkbox (default: ON)
+- Adjust "Max Queue Size" slider (1-5×, default: 2×)
+- Lower = less lag, more aggressive dropping
+- Higher = smoother motion, but more lag if can't keep up
+- Server logs show when frames are dropped
 
 ---
 
@@ -173,6 +229,27 @@ https://modal.com/apps/YOUR_WORKSPACE/main/deployed/krea-realtime-video
 - Verify B200 GPU is active (check Modal dashboard)
 - Lower resolution for faster generation
 - Reduce num_blocks for quicker completion
+
+### Background removal issues
+**"Background removal failed" in logs:**
+- YOLOv8n-seg model failed to load
+- Check GPU memory (need ~500MB)
+- Disable background removal for session if persistent
+
+**Black frames or person removed:**
+- Model confidence too high/low
+- Adjust in `release_server.py` line 511: `confidence=0.5`
+- Lower (0.3) = more aggressive, Higher (0.7) = stricter
+
+**Slow with background removal:**
+- Model processing bottleneck
+- Disable feature or use faster model
+- Check B200 not busy with other tasks
+
+### Lag in long webcam sessions
+- Enable "Drop Old Frames" checkbox
+- Lower "Max Queue Size" to 1-1.5× for aggressive dropping
+- Check Modal logs for frame dropping messages
 
 ---
 
@@ -254,10 +331,12 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - `.modalignore` - Deployment exclusions
 
 **App modifications:**
-- `release_server.py` - Fixed torch.load for .pth files, dynamo config
+- `release_server.py` - Dynamic model switching, background removal, frame dropping, horizontal mirror
 - `utils/wan_wrapper.py` - Added local_files_only, torch.load fix
 - `wan/modules/attention.py` - Fixed Flash Attention imports
-- `templates/release_demo.html` - Fixed msgpack CDN, added webcam UI
+- `templates/release_demo.html` - Webcam UI, model selector, camera selector, frame dropping controls, portrait/landscape flip
+- `background_removal.py` - YOLOv8n-seg background removal processor
+- `modal_app.py` - Added ultralytics, roboflow dependencies
 
 ---
 
@@ -277,13 +356,26 @@ See original ALTERNATIVE_DEPLOYMENT.md sections for detailed setup instructions.
 - Webcam real-time transformation (PR #3)
 - Text-to-video and video-to-video modes
 - 107GB models cached in Modal
+- **Dual-model support** (14B + 1.3B, switchable between generations)
+- **Background removal** (YOLOv8n-seg, real-time green screen)
+- **Multiple camera selection** (Firefox & Chrome compatible)
+- **Frame dropping controls** (prevent lag in long sessions)
+- **Portrait/landscape flip** (832×480 ↔ 480×832)
 
 ✅ **Deployed at:**
 https://YOUR_WORKSPACE--krea-realtime-video-serve.modal.run
 
 ✅ **Performance:**
-- 11 fps on B200
+- 14B Model: 11 fps on B200, best quality (8-10 fps with background removal)
+- 1.3B Model: Faster inference, lower quality
+- Switch models between generations (auto-reload)
 - Continuous generation with num_blocks=1000
-- Safe resolutions: 832×480, 640×480, 512×512
+- Resolutions: 832×480 (landscape) or 480×832 (portrait)
+- Background removal overhead: ~5-10ms per frame
+
+✅ **Model Switching:**
+- Select 14B or 1.3B from the UI
+- Server automatically loads on next generation
+- Compare quality vs. speed between runs
 
 🚀 **Ready to use!**

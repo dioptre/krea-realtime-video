@@ -5,6 +5,7 @@ Run with: modal deploy modal_app.py
 
 import modal
 import os
+import shutil
 from pathlib import Path
 
 # Create Modal app
@@ -56,6 +57,11 @@ image = (
         "transformers==4.54.1",
         "uvicorn==0.35.0",
     )
+    # Background removal (RF-DETR and YOLOv8)
+    .pip_install(
+        "ultralytics==8.3.29",
+        "roboflow==1.2.11",
+    )
     # Add local source code to the image (use script directory, not cwd)
     .add_local_dir(str(Path(__file__).parent), "/root/app")
 )
@@ -96,13 +102,14 @@ def download_models():
             "--local-dir", base_14b_path
         ], check=True)
 
-    # Download Krea Realtime checkpoint
+    # Download checkpoints
     checkpoint_dir = f"{models_dir}/checkpoints"
     os.makedirs(checkpoint_dir, exist_ok=True)
-    checkpoint_path = f"{checkpoint_dir}/krea-realtime-video-14b.safetensors"
 
-    if not os.path.exists(checkpoint_path):
-        print("Downloading Krea Realtime checkpoint...")
+    # 1. Krea Realtime 14B checkpoint
+    checkpoint_14b_path = f"{checkpoint_dir}/krea-realtime-video-14b.safetensors"
+    if not os.path.exists(checkpoint_14b_path):
+        print("Downloading Krea Realtime 14B checkpoint...")
         subprocess.run([
             "huggingface-cli", "download",
             "krea/krea-realtime-video",
@@ -110,8 +117,27 @@ def download_models():
             "--local-dir", checkpoint_dir
         ], check=True)
 
+    # 2. Self-Forcing 1.3B checkpoint
+    checkpoint_13b_path = f"{checkpoint_dir}/self_forcing_dmd.pt"
+    if not os.path.exists(checkpoint_13b_path):
+        print("Downloading Self-Forcing 1.3B checkpoint...")
+        # Download to a temp location and move it to flatten the path
+        temp_checkpoint_dir = f"{models_dir}/self_forcing_temp"
+        subprocess.run([
+            "huggingface-cli", "download",
+            "gdhe17/Self-Forcing",
+            "checkpoints/self_forcing_dmd.pt",
+            "--local-dir", temp_checkpoint_dir
+        ], check=True)
+        # Move from nested path to flat path
+        nested_file = f"{temp_checkpoint_dir}/checkpoints/self_forcing_dmd.pt"
+        if os.path.exists(nested_file):
+            shutil.move(nested_file, checkpoint_13b_path)
+            # Clean up temp directory
+            shutil.rmtree(temp_checkpoint_dir, ignore_errors=True)
+
     models_volume.commit()
-    print("✓ Models downloaded and cached!")
+    print("✓ Both 14B and 1.3B models downloaded and cached!")
     return True
 
 
@@ -129,7 +155,7 @@ with image.imports():
     # gpu=modal.gpu.H100(count=1),  # Likely ~7-9 fps, $3.95/hour (memory bottleneck)
     # gpu=modal.gpu.A100(count=1, size="80GB"),  # Likely ~6-8 fps, $2.50/hour
     volumes={"/models": models_volume},
-    timeout=3600,
+    timeout=28800,  # 8 hours for long sessions
     allow_concurrent_inputs=10,
     container_idle_timeout=300,
 )
@@ -146,7 +172,17 @@ def serve():
     # Change to app directory
     os.chdir("/root/app")
     sys.path.insert(0, "/root/app")
-    os.environ["CONFIG"] = "/root/app/configs/self_forcing_server_14b.yaml"
+
+    # Select model based on MODEL_VERSION env var (default: 14b)
+    model_version = os.environ.get("MODEL_VERSION", "14b").lower()
+    if model_version == "1.3b":
+        config_file = "/root/app/configs/self_forcing_server.yaml"
+        print("✓ Using 1.3B model (Self-Forcing)")
+    else:
+        config_file = "/root/app/configs/self_forcing_server_14b.yaml"
+        print("✓ Using 14B model (Krea Realtime)")
+
+    os.environ["CONFIG"] = config_file
 
     # Create symlink for checkpoints
     if not os.path.exists("/root/app/checkpoints"):
