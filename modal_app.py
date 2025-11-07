@@ -39,7 +39,7 @@ image = (
         "easydict==1.13",
         "einops==0.8.1",
         "fastapi==0.116.1",
-        "huggingface-hub==0.34.3",
+        "huggingface-hub[hf_transfer]==0.34.3",
         "imageio==2.37.0",
         "imageio-ffmpeg==0.6.0",
         "msgpack==1.1.1",
@@ -75,6 +75,9 @@ image = (
 def download_models():
     """Download required models to persistent volume"""
     import subprocess
+
+    # Enable faster hf_transfer for downloads
+    os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
 
     models_dir = "/models"
     os.makedirs(models_dir, exist_ok=True)
@@ -136,8 +139,31 @@ def download_models():
             # Clean up temp directory
             shutil.rmtree(temp_checkpoint_dir, ignore_errors=True)
 
+    # 3. Wan2.2 base model (needed for VAE and other components)
+    base_wan22_path = f"{models_dir}/Wan2.2-TI2V-5B"
+    if not os.path.exists(base_wan22_path):
+        print("Downloading Wan2.2 TI2V 5B base model...")
+        subprocess.run([
+            "huggingface-cli", "download",
+            "Wan-AI/Wan2.2-TI2V-5B",
+            "--local-dir-use-symlinks", "False",
+            "--local-dir", base_wan22_path
+        ], check=True)
+
+    # 4. Wan2.2 TI2V 5B Turbo (entire repo with config.json + model.pt)
+    turbo_path = f"{models_dir}/Wan2.2-TI2V-5B-Turbo"
+    if not os.path.exists(turbo_path):
+        print("Downloading Wan2.2 TI2V 5B Turbo (full repo)...")
+        subprocess.run([
+            "huggingface-cli", "download",
+            "quanhaol/Wan2.2-TI2V-5B-Turbo",
+            "--local-dir-use-symlinks", "False",
+            "--local-dir", turbo_path
+        ], check=True)
+        print(f"✓ Downloaded Wan2.2 Turbo to {turbo_path}")
+
     models_volume.commit()
-    print("✓ Both 14B and 1.3B models downloaded and cached!")
+    print("✓ All models downloaded and cached (14B, 1.3B, Wan2.2 base + Turbo)!")
     return True
 
 

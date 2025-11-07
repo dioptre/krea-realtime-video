@@ -416,16 +416,11 @@
 
             <div class="field">
                 <label>Model</label>
-                <div style="display: flex; gap: 16px; margin-top: 10px;">
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="radio" name="model" value="14b" checked style="width: auto;">
-                        <span>14B (Krea Realtime) - 11 fps, best quality</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <input type="radio" name="model" value="1.3b" style="width: auto;">
-                        <span>1.3B (Self-Forcing) - faster, lower quality</span>
-                    </label>
-                </div>
+                <select id="modelSelect" style="width: 100%; padding: 8px; margin-top: 10px;">
+                    <option value="14b" selected>14B (Krea Realtime) - 11 fps, best quality</option>
+                    <option value="1.3b">1.3B (Self-Forcing) - faster, lower quality</option>
+                    <option value="5b">5B (Wan2.2) - 4-step, fastest</option>
+                </select>
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">💡 Switch models between generations. Server will reload the new model on next start.</div>
             </div>
 
@@ -1101,15 +1096,19 @@
 
             // Model selection
             let currentModel = '14b';
-            const modelRadios = document.querySelectorAll('input[name="model"]');
+            const modelSelect = document.getElementById('modelSelect');
 
-            modelRadios.forEach(radio => {
-                radio.addEventListener("change", (e) => {
-                    currentModel = e.target.value;
-                    const modelName = currentModel === '14b' ? 'Krea Realtime 14B (11 fps)' : 'Self-Forcing 1.3B (faster)';
-                    log(`Model selected: ${modelName}`);
-                    updateStatus(`✓ Model changed to ${modelName}. Will load on next generation.`);
-                });
+            const modelNames = {
+                '14b': 'Krea Realtime 14B (11 fps, best quality)',
+                '1.3b': 'Self-Forcing 1.3B (faster)',
+                '5b': 'Wan2.2 5B (4-step, fastest)'
+            };
+
+            modelSelect.addEventListener("change", (e) => {
+                currentModel = e.target.value;
+                const modelName = modelNames[currentModel] || currentModel;
+                log(`Model selected: ${modelName}`);
+                updateStatus(`✓ Model changed to ${modelName}. Will load on next generation.`);
             });
 
             // Mode switching logic

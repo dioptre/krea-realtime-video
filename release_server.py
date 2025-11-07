@@ -156,11 +156,50 @@ def load_transformer(config, meta_transformer=False):
     """Load and configure the transformer model"""
     t_start = time.time()
 
-    checkpoint_path = config.checkpoint_path
-
     from utils.wan_wrapper import WanDiffusionWrapper
     t_import = time.time()
     log.debug(f"Transformer import took: {t_import - t_start:.2f}s")
+
+    # Detect model_name early to decide loading strategy
+    model_name = getattr(config, "model_kwargs", {}).get("model_name", None)
+    is_bidirectional = config.get("is_bidirectional", False)
+
+    # For Wan2.2, load directly from directory (skip torch.load)
+    if model_name and "2.2" in model_name and is_bidirectional:
+        log.info(f"Detected Wan2.2 model ({model_name}), loading from directory directly")
+        from wan22.modules.model import Wan22Model
+        turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
+        log.info(f"Loading Wan2.2 Turbo from {turbo_dir}")
+        transformer = Wan22Model.from_pretrained(turbo_dir, local_files_only=True)
+        timestep_shift = getattr(config, "timestep_shift", 5.0)
+        transformer = transformer.to(dtype=torch.bfloat16)
+        transformer.eval()
+        transformer.requires_grad_(False)
+        transformer.to(torch.cuda.current_device())
+
+        # Wan22Model doesn't have the same block structure, skip fuse_projections
+        if hasattr(transformer, 'blocks'):
+            try:
+                for block in transformer.blocks:
+                    if hasattr(block.self_attn, 'fuse_projections'):
+                        block.self_attn.fuse_projections()
+            except:
+                log.debug("Could not fuse projections for Wan2.2 model")
+
+        if config.enable_fp8:
+            log.debug("Quantizing transformer to fp8")
+            from torchao.quantization.quant_api import quantize_, Float8DynamicActivationFloat8WeightConfig, PerTensor
+            quantize_(transformer, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+
+        t_finish = time.time()
+        log.debug(f"Transformer load completed in: {t_finish - t_import:.2f}s, total: {t_finish - t_start:.2f}s")
+        return transformer
+
+    # Wan2.1 models: Load checkpoint file
+    checkpoint_path = config.checkpoint_path
+    # Prepend MODEL_FOLDER if path is relative
+    if not os.path.isabs(checkpoint_path):
+        checkpoint_path = os.path.join(MODEL_FOLDER, checkpoint_path)
 
     # Load checkpoint - handle both .safetensors and .pt formats
     if checkpoint_path.endswith('.safetensors'):
@@ -178,15 +217,54 @@ def load_transformer(config, meta_transformer=False):
             state_dict = checkpoint
 
     log.debug(f"Loading transformer state dict from {checkpoint_path}")
-    if state_dict["model.blocks.0.self_attn.k.weight"].shape[0] == 1536:
-        model_name = "Wan2.1-T2V-1.3B"
-    else:
-        model_name = "Wan2.1-T2V-14B"
+
+    if model_name is None:
+        # Auto-detect from state dict
+        try:
+            # Find first attention layer to check dims
+            for key in state_dict.keys():
+                if "self_attn.k.weight" in key:
+                    k_weight_shape = state_dict[key].shape[0]
+                    if k_weight_shape == 1536:
+                        model_name = "Wan2.1-T2V-1.3B"
+                    elif k_weight_shape == 3072:
+                        model_name = "Wan2.2-TI2V-5B"
+                    else:
+                        model_name = "Wan2.1-T2V-14B"
+                    break
+        except (KeyError, StopIteration):
+            log.warning("Could not auto-detect model from checkpoint, defaulting to 14B")
+            model_name = "Wan2.1-T2V-14B"
+
+    # For Wan2.2, handle FSDP wrapper unwrapping if needed
+    if "2.2" in model_name:
+        # Check if this is a wrapped checkpoint (has "generator" key at top level)
+        if "generator" in state_dict:
+            log.info(f"Extracting generator from wrapped checkpoint for {model_name}")
+            state_dict = state_dict["generator"]
+
+        # Now unwrap FSDP if present
+        if any("_fsdp_wrapped_module" in k or "_checkpoint_wrapped_module" in k or "_orig_mod" in k for k in state_dict.keys()):
+            log.info(f"Unwrapping FSDP wrapper for {model_name}")
+            new_state_dict = {}
+            for key, value in state_dict.items():
+                new_key = key.replace("_fsdp_wrapped_module.", "")
+                new_key = new_key.replace("_checkpoint_wrapped_module.", "")
+                new_key = new_key.replace("_orig_mod.", "")
+                new_state_dict[new_key] = value
+            state_dict = new_state_dict
 
     timestep_shift = getattr(config, "timestep_shift", 5.0)
-    transformer = WanDiffusionWrapper(model_name=model_name, timestep_shift=timestep_shift, is_causal=True)
+    # Check if bidirectional (Wan2.2) or causal (Wan2.1)
+    is_bidirectional = config.get("is_bidirectional", False)
+
+    log.info(f"Loading model: {model_name}, is_causal={not is_bidirectional}")
+
+    # Load Wan2.1 model (Wan2.2 already returned early above)
+    log.debug(f"Loading Wan2.1 model with WanDiffusionWrapper")
+    transformer = WanDiffusionWrapper(model_name=model_name, timestep_shift=timestep_shift, is_causal=not is_bidirectional)
     transformer.load_state_dict(state_dict)
-    
+
     transformer = transformer.to(dtype=torch.bfloat16)
     transformer.eval()
     transformer.requires_grad_(False)
@@ -206,41 +284,79 @@ def load_transformer(config, meta_transformer=False):
     
     return transformer
 
-def load_vae():
-    """Load and configure the VAE decoder"""
+def load_vae(config=None):
+    """Load and configure the VAE decoder
+
+    Args:
+        config: OmegaConf config object. If config.is_bidirectional is True, load Wan2.2 VAE.
+                Otherwise, load Wan2.1 VAE.
+    """
     t_start = time.time()
 
-    log.debug("Using demo_utils.vae_block3.VAEEncoderWrapper")
-    log.debug("Using demo_utils.vae_block3.VAEDecoderWrapper")
-    from demo_utils.vae_block3 import VAEEncoderWrapper
-    from demo_utils.vae_block3 import VAEDecoderWrapper
-    vae_dtype = torch.float16
-    vae_path = os.path.join(MODEL_FOLDER, "Wan2.1-T2V-1.3B", "Wan2.1_VAE.pth")
-    vae = WanVAE(vae_pth=vae_path, dtype=vae_dtype)
-    vae_encoder = VAEEncoderWrapper(vae)
+    is_bidirectional = config.get('is_bidirectional', False) if config else False
 
-    vae_decoder = VAEDecoderWrapper()
-    vae_state_dict = torch.load(vae_path, map_location="cpu")
-    decoder_state_dict = {}
-    for key, value in vae_state_dict.items():
-        if 'decoder.' in key or 'conv2' in key:
-            decoder_state_dict[key] = value
+    if is_bidirectional:
+        # Load Wan2.2 VAE (bidirectional, 48 latent channels)
+        log.debug("Using Wan2_2_VAEWrapper for Wan2.2")
+        # Import from the Wan2.2 repo's wan_wrapper
+        try:
+            from wan22.modules.vae import VAEEncoder, VAEDecoder
+            from utils.wan_wrapper import Wan2_2_VAEWrapper
 
-    vae_encoder.eval()
-    vae_encoder.to(dtype=torch.float16)
-    vae_encoder.requires_grad_(False)
-    vae_encoder.to(torch.cuda.current_device())
+            wan22_vae_path = os.path.join(MODEL_FOLDER, "checkpoints", "Wan2.2_VAE.pth")
+            vae_wrapper = Wan2_2_VAEWrapper(
+                vae_pth=wan22_vae_path
+            )
+            vae_encoder = vae_wrapper  # Wrapper has encode_to_latent method
+            vae_decoder = vae_wrapper  # Wrapper has decode_to_pixel method
+        except ImportError:
+            log.warning("Could not import Wan2_2_VAEWrapper, falling back to Wan2.1 VAE")
+            is_bidirectional = False
 
-    keys = vae_decoder.load_state_dict(decoder_state_dict, strict=False)
-    print(f"Incompatible {keys} while loading vae decoder")
-    vae_decoder.eval()
-    vae_decoder.to(dtype=torch.float16)
-    vae_decoder.requires_grad_(False)
-    vae_decoder.to(torch.cuda.current_device())
+    if not is_bidirectional:
+        # Load Wan2.1 VAE (original)
+        log.debug("Using demo_utils.vae_block3.VAEEncoderWrapper")
+        log.debug("Using demo_utils.vae_block3.VAEDecoderWrapper")
+        from demo_utils.vae_block3 import VAEEncoderWrapper
+        from demo_utils.vae_block3 import VAEDecoderWrapper
+        vae_dtype = torch.float16
+        vae_path = os.path.join(MODEL_FOLDER, "Wan2.1-T2V-1.3B", "Wan2.1_VAE.pth")
+        vae = WanVAE(vae_pth=vae_path, dtype=vae_dtype)
+        vae_encoder = VAEEncoderWrapper(vae)
+
+        vae_decoder = VAEDecoderWrapper()
+        vae_state_dict = torch.load(vae_path, map_location="cpu")
+        decoder_state_dict = {}
+        for key, value in vae_state_dict.items():
+            if 'decoder.' in key or 'conv2' in key:
+                decoder_state_dict[key] = value
+
+        vae_encoder.eval()
+        vae_encoder.to(dtype=torch.float16)
+        vae_encoder.requires_grad_(False)
+        vae_encoder.to(torch.cuda.current_device())
+
+        keys = vae_decoder.load_state_dict(decoder_state_dict, strict=False)
+        print(f"Incompatible {keys} while loading vae decoder")
+        vae_decoder.eval()
+        vae_decoder.to(dtype=torch.float16)
+        vae_decoder.requires_grad_(False)
+        vae_decoder.to(torch.cuda.current_device())
+    else:
+        # Move Wan2.2 VAE to device
+        vae_encoder.to(dtype=torch.bfloat16)
+        vae_encoder.eval()
+        vae_encoder.requires_grad_(False)
+        vae_encoder.to(torch.cuda.current_device())
+
+        vae_decoder.to(dtype=torch.bfloat16)
+        vae_decoder.eval()
+        vae_decoder.requires_grad_(False)
+        vae_decoder.to(torch.cuda.current_device())
 
     t_finish = time.time()
     log.debug(f"VAE load completed in: {t_finish - t_start:.2f}s")
-    
+
     return vae_encoder, vae_decoder
 
 
@@ -305,7 +421,7 @@ def load_all(config: OmegaConf, meta_transformer=False):
         # Load VAE decoder
         pbar.set_description("Loading VAE")
         t_stage_start = time.time()
-        vae_encoder, vae_decoder = load_vae()
+        vae_encoder, vae_decoder = load_vae(config)
         log.debug(f"Loading VAE took: {time.time() - t_stage_start:.2f}s")
         pbar.update(1)
 
@@ -362,7 +478,7 @@ class GenerateParams(BaseModel):
     max_queue_multiplier: float = 2.0  # Max queue size multiplier (e.g., 2.0 = 2x needed frames)
 
     mode: str = "text2video"  # Mode: text2video, video2video, webcam
-    model: str = "14b"  # Model: 14b or 1.3b
+    model: str = "14b"  # Model: 14b, 1.3b, or 5b
     class Config:
         arbitrary_types_allowed = True
     
@@ -813,6 +929,8 @@ def get_model_config_path(model: str) -> str:
     """Get config path for a model version"""
     if model == "1.3b":
         return "configs/self_forcing_server.yaml"
+    elif model == "5b":
+        return "configs/wan22_ti2v_5b.yaml"
     else:
         return "configs/self_forcing_server_14b.yaml"
 
