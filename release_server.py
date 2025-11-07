@@ -168,8 +168,8 @@ def load_transformer(config, meta_transformer=False):
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
-        # Import from installed wan22-turbo package (git dependency in pyproject.toml)
-        from pipeline.wan22_fewstep_inference import Wan22FewstepInferencePipeline
+        # Import from installed wan22-turbo package (installed as 'self_forcing' package)
+        from self_forcing.pipeline import Wan22FewstepInferencePipeline
 
         # Create pipeline with config
         pipe = Wan22FewstepInferencePipeline(config)
