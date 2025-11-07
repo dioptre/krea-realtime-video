@@ -177,6 +177,11 @@ def load_transformer(config, meta_transformer=False):
         turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
         pipeline_init_path = os.path.join(turbo_dir, "pipeline", "__init__.py")
 
+        # Ensure turbo_dir is in sys.path so imports within the loaded module work
+        if turbo_dir not in sys.path:
+            sys.path.insert(0, turbo_dir)
+            log.debug(f"Added {turbo_dir} to sys.path for turbo imports")
+
         # Load the turbo repo's pipeline module directly
         spec = importlib.util.spec_from_file_location("turbo_pipeline", pipeline_init_path)
         turbo_pipeline_module = importlib.util.module_from_spec(spec)
