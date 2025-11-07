@@ -169,15 +169,22 @@ def load_transformer(config, meta_transformer=False):
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
-        # pipeline is a directory inside the cloned Wan2.2-TI2V-5B-Turbo repo
-        # Ensure the repo directory is in sys.path for imports
-        turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
-        if turbo_dir not in sys.path:
-            sys.path.insert(0, turbo_dir)
-            log.debug(f"Added {turbo_dir} to sys.path for pipeline imports")
+        # Load Wan22FewstepInferencePipeline from the turbo repo
+        # We use importlib to avoid namespace conflicts with app's own pipeline directory
+        import importlib.util
+        import importlib.machinery
 
-        # Import from pipeline (inside turbo repo, following reference implementation)
-        from pipeline import Wan22FewstepInferencePipeline
+        turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
+        pipeline_init_path = os.path.join(turbo_dir, "pipeline", "__init__.py")
+
+        # Load the turbo repo's pipeline module directly
+        spec = importlib.util.spec_from_file_location("turbo_pipeline", pipeline_init_path)
+        turbo_pipeline_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(turbo_pipeline_module)
+
+        # Get the pipeline class from the loaded module
+        Wan22FewstepInferencePipeline = turbo_pipeline_module.Wan22FewstepInferencePipeline
+        log.debug(f"Loaded Wan22FewstepInferencePipeline from {pipeline_init_path}")
 
         # Create pipeline with config
         pipe = Wan22FewstepInferencePipeline(config)
