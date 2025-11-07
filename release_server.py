@@ -9,6 +9,7 @@ from utils.scheduler import SchedulerInterface, FlowMatchScheduler
 import asyncio
 import random
 import os
+import sys
 import random
 import gc
 import logging
@@ -168,7 +169,14 @@ def load_transformer(config, meta_transformer=False):
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
-        # Import from installed wan22-turbo package (installed via pip_install in modal_app.py)
+        # self_forcing is a package inside the cloned Wan2.2-TI2V-5B-Turbo repo
+        # Ensure the repo directory is in sys.path for imports
+        turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
+        if turbo_dir not in sys.path:
+            sys.path.insert(0, turbo_dir)
+            log.debug(f"Added {turbo_dir} to sys.path for self_forcing imports")
+
+        # Import from self_forcing package (inside turbo repo)
         from self_forcing.pipeline import Wan22FewstepInferencePipeline
 
         # Create pipeline with config
@@ -200,8 +208,8 @@ def load_transformer(config, meta_transformer=False):
         t_finish = time.time()
         log.debug(f"Transformer load completed in: {t_finish - t_import:.2f}s, total: {t_finish - t_start:.2f}s")
 
-        # Return just the generator for consistency with Wan2.1 path
-        return pipe.generator
+        # Return full pipe for Wan2.2 inference
+        return pipe
 
     # Wan2.1 models: Load checkpoint file
     checkpoint_path = config.checkpoint_path
@@ -935,9 +943,10 @@ _current_model = "14b"
 
 def get_model_config_path(model: str) -> str:
     """Get config path for a model version"""
-    if model == "1.3b":
+    model_lower = model.lower()
+    if model_lower == "1.3b":
         return "configs/self_forcing_server.yaml"
-    elif model == "5b":
+    elif model_lower == "5b":
         return "configs/wan22_ti2v_5b.yaml"
     else:
         return "configs/self_forcing_server_14b.yaml"
@@ -988,9 +997,9 @@ async def health():
 
 @app.get("/test_wan22")
 async def test_wan22():
-    """Test endpoint to generate video with Wan2.2 5B model and save as MP4"""
+    """Test endpoint to generate MP4 with Wan2.2 5B model"""
     try:
-        log.info("Testing Wan2.2 5B model and generating MP4...")
+        log.info("Testing Wan2.2 5B model generation...")
 
         # Create output directory
         output_dir = Path("/tmp/wan22_mp4_test")
@@ -998,70 +1007,48 @@ async def test_wan22():
         frames_dir = output_dir / "frames"
         frames_dir.mkdir(exist_ok=True)
 
-        frames_list = []
-        frame_counter = [0]
+        # Ensure 5B model is loaded
+        ensure_model_loaded(app, "5B")
+        log.info("5B model loaded")
 
-        def frame_callback_save(tensor: torch.Tensor, frame_ids: list[str], event: torch.cuda.Event):
-            """Save frames to disk"""
-            try:
-                cpu_tensor = torch.zeros_like(tensor, device="cpu", pin_memory=True)
-                download_stream.wait_event(event)
-                with torch.cuda.stream(download_stream):
-                    cpu_tensor.copy_(tensor)
-                normalized = cpu_tensor.add_(1.0).mul_(0.5).clamp_(0.0, 1.0)
+        # Get the pipeline from models - this is the Wan22FewstepInferencePipeline
+        pipe = app.state.models.transformer
+        log.info(f"Pipeline type: {type(pipe)}")
 
-                # Save each frame as PNG
-                for idx in range(tensor.shape[1]):
-                    frame_pil = TF.to_pil_image(normalized[0, idx], "RGB")
-                    frame_path = frames_dir / f"frame_{frame_counter[0]:04d}.png"
-                    frame_pil.save(frame_path)
-                    frames_list.append(frame_path)
-                    frame_counter[0] += 1
-                    log.info(f"Saved frame {frame_counter[0]}")
-            except Exception as e:
-                log.error(f"Error saving frame: {e}")
+        prompt = "a beautiful sunset over the ocean"
+        text_prompts = [prompt]
 
-        # Create a simple generation params object
-        # NOTE: 5B (Wan2.2) uses bidirectional inference - different from causal generation loop
-        # Test with 14B model first which works with causal generation
-        params = GenerateParams(
-            prompt="a beautiful sunset over the ocean",
-            num_blocks=3,  # Small test
-            denoising_strength=0.7,
-            model="14B",  # Use 14B which works with causal generation
-            seed=42,
-            width=640,
-            height=480,
-            mode="text_to_video",
-            block_on_frame=True
-        )
+        # Generate 4 denoising steps (steps in the pipeline)
+        frame_list = []
 
-        # Ensure model is loaded
-        ensure_model_loaded(app, params.model)
-        log.info(f"Model loaded: {params.model}")
+        for step_idx in range(4):
+            log.info(f"Generating step {step_idx + 1}/4...")
 
-        # Create session with frame callback
-        session = GenerationSession(
-            params,
-            app.state.config,
-            frame_callback=frame_callback_save,
-            models=app.state.models
-        )
-        log.info("Generation session created")
+            # Create random noise
+            noise = torch.randn(1, 4, 60, 80, device="cuda", dtype=torch.bfloat16)
 
-        # Generate all blocks
-        for block_idx in range(params.num_blocks):
-            session.generate_block(app.state.models)
-            log.info(f"Generated block {block_idx + 1}/{params.num_blocks}")
+            # Run inference
+            output = pipe.inference(noise, text_prompts)
+            log.info(f"Output shape: {output.shape}")
 
-        log.info(f"Total frames saved: {len(frames_list)}")
+            # Extract frames and save
+            output_normalized = output.add_(1.0).mul_(0.5).clamp_(0.0, 1.0)
 
-        # Convert frames to MP4 using ffmpeg
-        output_mp4 = output_dir / "wan22_5b_output.mp4"
-        if frames_list:
+            for frame_idx in range(output.shape[1]):
+                frame_pil = TF.to_pil_image(output_normalized[0, frame_idx], "RGB")
+                frame_path = frames_dir / f"frame_{len(frame_list):04d}.png"
+                frame_pil.save(frame_path)
+                frame_list.append(frame_path)
+                log.info(f"Saved frame {len(frame_list)}")
+
+        log.info(f"Total frames: {len(frame_list)}")
+
+        # Convert to MP4
+        output_mp4 = output_dir / "wan22_5b_turbo.mp4"
+        if frame_list:
             import subprocess
             ffmpeg_cmd = [
-                "ffmpeg",
+                "ffmpeg", "-y",
                 "-framerate", "8",
                 "-pattern_type", "glob",
                 "-i", str(frames_dir / "frame_*.png"),
@@ -1071,7 +1058,7 @@ async def test_wan22():
                 str(output_mp4)
             ]
 
-            log.info(f"Running ffmpeg: {' '.join(ffmpeg_cmd)}")
+            log.info("Running ffmpeg...")
             result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=120)
 
             if result.returncode == 0 and output_mp4.exists():
@@ -1079,25 +1066,17 @@ async def test_wan22():
                 log.info(f"MP4 created: {output_mp4} ({file_size:.2f} MB)")
                 return {
                     "status": "success",
-                    "model": params.model,
-                    "frames_generated": len(frames_list),
-                    "blocks_generated": params.num_blocks,
+                    "model": "5B",
+                    "frames": len(frame_list),
                     "mp4_path": str(output_mp4),
-                    "mp4_size_mb": file_size,
+                    "mp4_size_mb": round(file_size, 2),
                     "message": f"Wan2.2 5B MP4 generated: {file_size:.2f} MB"
                 }
             else:
-                return {
-                    "status": "error",
-                    "error": "FFmpeg conversion failed",
-                    "ffmpeg_stdout": result.stdout,
-                    "ffmpeg_stderr": result.stderr
-                }
+                log.error(f"FFmpeg failed: {result.stderr}")
+                return {"status": "error", "error": result.stderr}
         else:
-            return {
-                "status": "error",
-                "error": "No frames were generated"
-            }
+            return {"status": "error", "error": "No frames generated"}
 
     except Exception as e:
         log.error(f"Test failed: {e}", exc_info=True)
