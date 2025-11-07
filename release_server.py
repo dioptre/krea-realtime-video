@@ -177,10 +177,13 @@ def load_transformer(config, meta_transformer=False):
             sys.path.insert(0, turbo_dir)
             log.debug(f"Added {turbo_dir} to sys.path (position 0)")
 
-        # Clear the pipeline module from sys.modules to force reload from turbo_dir
-        if 'pipeline' in sys.modules:
-            del sys.modules['pipeline']
-            log.debug("Cleared 'pipeline' from sys.modules to avoid shadowing")
+        # Clear modules from sys.modules to force reload from turbo_dir
+        # We need to clear both pipeline and related utils modules to avoid shadowing
+        modules_to_clear = ['pipeline', 'utils']
+        for mod_name in modules_to_clear:
+            if mod_name in sys.modules:
+                del sys.modules[mod_name]
+                log.debug(f"Cleared '{mod_name}' from sys.modules to avoid shadowing")
 
         # Now import from pipeline - should get turbo version due to sys.path manipulation
         from pipeline import Wan22FewstepInferencePipeline
