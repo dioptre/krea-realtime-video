@@ -170,26 +170,21 @@ def load_transformer(config, meta_transformer=False):
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
         # Load Wan22FewstepInferencePipeline from the turbo repo
-        # We use importlib to avoid namespace conflicts with app's own pipeline directory
-        import importlib.util
-        import importlib.machinery
-
+        # We add turbo_dir to sys.path at position 0 to override our app's pipeline directory
         turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
-        pipeline_init_path = os.path.join(turbo_dir, "pipeline", "__init__.py")
 
-        # Ensure turbo_dir is in sys.path so imports within the loaded module work
         if turbo_dir not in sys.path:
             sys.path.insert(0, turbo_dir)
-            log.debug(f"Added {turbo_dir} to sys.path for turbo imports")
+            log.debug(f"Added {turbo_dir} to sys.path (position 0)")
 
-        # Load the turbo repo's pipeline module directly
-        spec = importlib.util.spec_from_file_location("turbo_pipeline", pipeline_init_path)
-        turbo_pipeline_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(turbo_pipeline_module)
+        # Clear the pipeline module from sys.modules to force reload from turbo_dir
+        if 'pipeline' in sys.modules:
+            del sys.modules['pipeline']
+            log.debug("Cleared 'pipeline' from sys.modules to avoid shadowing")
 
-        # Get the pipeline class from the loaded module
-        Wan22FewstepInferencePipeline = turbo_pipeline_module.Wan22FewstepInferencePipeline
-        log.debug(f"Loaded Wan22FewstepInferencePipeline from {pipeline_init_path}")
+        # Now import from pipeline - should get turbo version due to sys.path manipulation
+        from pipeline import Wan22FewstepInferencePipeline
+        log.debug("Successfully imported Wan22FewstepInferencePipeline from turbo pipeline")
 
         # Create pipeline with config
         pipe = Wan22FewstepInferencePipeline(config)
