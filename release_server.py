@@ -986,6 +986,58 @@ app.add_middleware(
 async def health():
     return "OK"
 
+@app.get("/test_wan22")
+async def test_wan22():
+    """Test endpoint to generate video with Wan2.2 5B model"""
+    try:
+        log.info("Testing Wan2.2 5B model...")
+
+        # Create a simple generation params object
+        params = GenerateParams(
+            prompt="a beautiful sunset over the ocean",
+            num_blocks=5,
+            denoising_strength=0.7,
+            model="5B",
+            seed=42,
+            width=640,
+            height=480,
+            mode="text_to_video",
+            block_on_frame=True
+        )
+
+        # Ensure model is loaded
+        ensure_model_loaded(app, params.model)
+        log.info(f"Model loaded: {params.model}")
+
+        # Create session
+        session = GenerationSession(
+            params,
+            app.state.config,
+            frame_callback=None,
+            models=app.state.models
+        )
+        log.info("Generation session created")
+
+        # Generate one block
+        session.generate_block(app.state.models)
+        log.info(f"Generated block 1/{session.num_blocks}")
+
+        return {
+            "status": "success",
+            "model": params.model,
+            "blocks_generated": 1,
+            "total_blocks": session.num_blocks,
+            "message": "Wan2.2 5B model test successful"
+        }
+    except Exception as e:
+        log.error(f"Test failed: {e}", exc_info=True)
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 @app.get("/")
 async def root():
     demo_path = Path(__file__).parent / "templates" / "release_demo.html"
