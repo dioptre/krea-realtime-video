@@ -62,6 +62,10 @@ image = (
         "ultralytics==8.3.29",
         "roboflow==1.2.11",
     )
+    # Wan2.2 dependencies
+    .pip_install(
+        "lmdb==1.4.1",  # Required by Wan2.2 pipeline (used in training code)
+    )
     # Install wan22-turbo as a package from git (declared in pyproject.toml)
     .pip_install(
         "git+https://github.com/quanhaol/Wan2.2-TI2V-5B-Turbo.git@393dd18c51142a28c76ebc1a53980263f508b9bf",
