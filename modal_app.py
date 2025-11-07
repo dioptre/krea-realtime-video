@@ -206,11 +206,6 @@ def serve():
     os.chdir("/root/app")
     sys.path.insert(0, "/root/app")
 
-    # Add Wan2.2-TI2V-5B-Turbo repo to path for pipeline imports
-    turbo_path = "/models/Wan2.2-TI2V-5B-Turbo"
-    if os.path.exists(turbo_path):
-        sys.path.insert(0, turbo_path)
-
     # Select model based on MODEL_VERSION env var (default: 14b)
     model_version = os.environ.get("MODEL_VERSION", "14b").lower()
     if model_version == "1.3b":
