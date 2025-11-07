@@ -62,6 +62,10 @@ image = (
         "ultralytics==8.3.29",
         "roboflow==1.2.11",
     )
+    # Wan2.2 Turbo from git
+    .pip_install(
+        "git+https://github.com/quanhaol/Wan2.2-TI2V-5B-Turbo.git@393dd18c51142a28c76ebc1a53980263f508b9bf",
+    )
     # Add local source code to the image (use script directory, not cwd)
     .add_local_dir(str(Path(__file__).parent), "/root/app")
 )
@@ -198,6 +202,11 @@ def serve():
     # Change to app directory
     os.chdir("/root/app")
     sys.path.insert(0, "/root/app")
+
+    # Add Wan2.2-TI2V-5B-Turbo repo to path for pipeline imports
+    turbo_path = "/models/Wan2.2-TI2V-5B-Turbo"
+    if os.path.exists(turbo_path):
+        sys.path.insert(0, turbo_path)
 
     # Select model based on MODEL_VERSION env var (default: 14b)
     model_version = os.environ.get("MODEL_VERSION", "14b").lower()

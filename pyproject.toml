@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "wan22-turbo",
     "accelerate==1.9.0",
     "aiohappyeyeballs==2.6.1",
     "aiohttp==3.12.15",
@@ -236,6 +237,7 @@ nvidia-pyindex = ["pip"]
 
 [tool.uv.sources]
 clip = { git = "https://github.com/openai/CLIP.git", rev = "dcba3cb2e2827b402d2701e7e1c7d9fed8a20ef1" }
+wan22-turbo = { git = "https://github.com/quanhaol/Wan2.2-TI2V-5B-Turbo.git", rev = "393dd18c51142a28c76ebc1a53980263f508b9bf" }
 
 [dependency-groups]
 dev = [

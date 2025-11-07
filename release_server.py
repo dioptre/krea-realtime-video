@@ -164,36 +164,44 @@ def load_transformer(config, meta_transformer=False):
     model_name = getattr(config, "model_kwargs", {}).get("model_name", None)
     is_bidirectional = config.get("is_bidirectional", False)
 
-    # For Wan2.2, load directly from directory (skip torch.load)
+    # For Wan2.2, use Wan22FewstepInferencePipeline from installed git dependency
     if model_name and "2.2" in model_name and is_bidirectional:
-        log.info(f"Detected Wan2.2 model ({model_name}), loading from directory directly")
-        from wan22.modules.model import Wan22Model
+        log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
+
+        # Import from installed wan22-turbo package (git dependency in pyproject.toml)
+        from pipeline.wan22_fewstep_inference import Wan22FewstepInferencePipeline
+
+        # Create pipeline with config
+        pipe = Wan22FewstepInferencePipeline(config)
+
+        # Load checkpoint from turbo repo
         turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
-        log.info(f"Loading Wan2.2 Turbo from {turbo_dir}")
-        transformer = Wan22Model.from_pretrained(turbo_dir, local_files_only=True)
-        timestep_shift = getattr(config, "timestep_shift", 5.0)
-        transformer = transformer.to(dtype=torch.bfloat16)
-        transformer.eval()
-        transformer.requires_grad_(False)
-        transformer.to(torch.cuda.current_device())
+        checkpoint_file = os.path.join(turbo_dir, "model.pt")
+        log.info(f"Loading Wan2.2 checkpoint from {checkpoint_file}")
 
-        # Wan22Model doesn't have the same block structure, skip fuse_projections
-        if hasattr(transformer, 'blocks'):
-            try:
-                for block in transformer.blocks:
-                    if hasattr(block.self_attn, 'fuse_projections'):
-                        block.self_attn.fuse_projections()
-            except:
-                log.debug("Could not fuse projections for Wan2.2 model")
+        state_dict = torch.load(checkpoint_file, map_location="cpu")
 
-        if config.enable_fp8:
-            log.debug("Quantizing transformer to fp8")
-            from torchao.quantization.quant_api import quantize_, Float8DynamicActivationFloat8WeightConfig, PerTensor
-            quantize_(transformer, Float8DynamicActivationFloat8WeightConfig(granularity=PerTensor()))
+        # Unwrap FSDP wrapper (follows reference implementation)
+        new_state_dict = {}
+        for key, value in state_dict.items():
+            new_key = key.replace("_fsdp_wrapped_module.", "")
+            new_key = new_key.replace("_checkpoint_wrapped_module.", "")
+            new_key = new_key.replace("_orig_mod.", "")
+            new_state_dict[new_key] = value
+
+        # Load into pipe.generator
+        m, u = pipe.generator.load_state_dict(new_state_dict, strict=False)
+        if len(u) > 0:
+            log.warning(f"Unexpected keys in state_dict: {u}")
+
+        # Move to device and dtype
+        pipe = pipe.to(device="cuda", dtype=torch.bfloat16)
 
         t_finish = time.time()
         log.debug(f"Transformer load completed in: {t_finish - t_import:.2f}s, total: {t_finish - t_start:.2f}s")
-        return transformer
+
+        # Return just the generator for consistency with Wan2.1 path
+        return pipe.generator
 
     # Wan2.1 models: Load checkpoint file
     checkpoint_path = config.checkpoint_path
