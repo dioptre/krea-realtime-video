@@ -164,28 +164,12 @@ def load_transformer(config, meta_transformer=False):
     model_name = getattr(config, "model_kwargs", {}).get("model_name", None)
     is_bidirectional = config.get("is_bidirectional", False)
 
-    # For Wan2.2, use Wan22FewstepInferencePipeline from local turbo repo
+    # For Wan2.2, use Wan22FewstepInferencePipeline from installed package
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
-        # Add turbo path to sys.path - keep it for the entire function to avoid import issues
-        import sys
-        turbo_base = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
-        if turbo_base not in sys.path:
-            sys.path.insert(0, turbo_base)
-
-        try:
-            from self_forcing.pipeline import Wan22FewstepInferencePipeline
-        except ModuleNotFoundError as e:
-            log.error(f"Failed to import Wan22FewstepInferencePipeline: {e}")
-            log.error(f"Turbo path: {turbo_base}")
-            log.error(f"Path exists: {os.path.exists(turbo_base)}")
-            if os.path.exists(turbo_base):
-                log.error(f"Contents: {os.listdir(turbo_base)}")
-                self_forcing_path = os.path.join(turbo_base, "self_forcing")
-                if os.path.exists(self_forcing_path):
-                    log.error(f"self_forcing contents: {os.listdir(self_forcing_path)}")
-            raise
+        # Import from installed wan22-turbo package (installed via pip_install in modal_app.py)
+        from self_forcing.pipeline import Wan22FewstepInferencePipeline
 
         # Create pipeline with config
         pipe = Wan22FewstepInferencePipeline(config)

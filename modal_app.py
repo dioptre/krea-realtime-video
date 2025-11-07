@@ -62,6 +62,10 @@ image = (
         "ultralytics==8.3.29",
         "roboflow==1.2.11",
     )
+    # Install wan22-turbo as a package from git (declared in pyproject.toml)
+    .pip_install(
+        "git+https://github.com/quanhaol/Wan2.2-TI2V-5B-Turbo.git@393dd18c51142a28c76ebc1a53980263f508b9bf",
+    )
     # Add local source code to the image (use script directory, not cwd)
     .add_local_dir(str(Path(__file__).parent), "/root/app")
 )
