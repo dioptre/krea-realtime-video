@@ -169,15 +169,15 @@ def load_transformer(config, meta_transformer=False):
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
-        # self_forcing is a package inside the cloned Wan2.2-TI2V-5B-Turbo repo
+        # pipeline is a directory inside the cloned Wan2.2-TI2V-5B-Turbo repo
         # Ensure the repo directory is in sys.path for imports
         turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
         if turbo_dir not in sys.path:
             sys.path.insert(0, turbo_dir)
-            log.debug(f"Added {turbo_dir} to sys.path for self_forcing imports")
+            log.debug(f"Added {turbo_dir} to sys.path for pipeline imports")
 
-        # Import from self_forcing package (inside turbo repo)
-        from self_forcing.pipeline import Wan22FewstepInferencePipeline
+        # Import from pipeline (inside turbo repo, following reference implementation)
+        from pipeline import Wan22FewstepInferencePipeline
 
         # Create pipeline with config
         pipe = Wan22FewstepInferencePipeline(config)
