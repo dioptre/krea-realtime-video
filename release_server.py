@@ -164,11 +164,12 @@ def load_transformer(config, meta_transformer=False):
     model_name = getattr(config, "model_kwargs", {}).get("model_name", None)
     is_bidirectional = config.get("is_bidirectional", False)
 
-    # For Wan2.2, use Wan22FewstepInferencePipeline from installed git dependency
+    # For Wan2.2, use Wan22FewstepInferencePipeline from local turbo repo
+    # (sys.path includes /models/Wan2.2-TI2V-5B-Turbo from serve() in modal_app.py)
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
-        # Import from installed wan22-turbo package (installed as 'self_forcing' package)
+        # Import from local self_forcing package (cloned to /models and added to sys.path)
         from self_forcing.pipeline import Wan22FewstepInferencePipeline
 
         # Create pipeline with config

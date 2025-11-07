@@ -62,10 +62,6 @@ image = (
         "ultralytics==8.3.29",
         "roboflow==1.2.11",
     )
-    # Wan2.2 Turbo from git
-    .pip_install(
-        "git+https://github.com/quanhaol/Wan2.2-TI2V-5B-Turbo.git@393dd18c51142a28c76ebc1a53980263f508b9bf",
-    )
     # Add local source code to the image (use script directory, not cwd)
     .add_local_dir(str(Path(__file__).parent), "/root/app")
 )
@@ -154,17 +150,18 @@ def download_models():
             "--local-dir", base_wan22_path
         ], check=True)
 
-    # 4. Wan2.2 TI2V 5B Turbo (entire repo with config.json + model.pt)
+    # 4. Wan2.2 TI2V 5B Turbo (full repo with source code + model.pt)
     turbo_path = f"{models_dir}/Wan2.2-TI2V-5B-Turbo"
     if not os.path.exists(turbo_path):
-        print("Downloading Wan2.2 TI2V 5B Turbo (full repo)...")
+        print("Cloning Wan2.2 TI2V 5B Turbo repo (full source code)...")
         subprocess.run([
-            "huggingface-cli", "download",
-            "quanhaol/Wan2.2-TI2V-5B-Turbo",
-            "--local-dir-use-symlinks", "False",
-            "--local-dir", turbo_path
+            "git", "clone",
+            "--depth", "1",
+            "--branch", "main",
+            "https://github.com/quanhaol/Wan2.2-TI2V-5B-Turbo.git",
+            turbo_path
         ], check=True)
-        print(f"✓ Downloaded Wan2.2 Turbo to {turbo_path}")
+        print(f"✓ Cloned Wan2.2 Turbo repo to {turbo_path}")
 
     models_volume.commit()
     print("✓ All models downloaded and cached (14B, 1.3B, Wan2.2 base + Turbo)!")
