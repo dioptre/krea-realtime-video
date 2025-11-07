@@ -65,6 +65,7 @@ image = (
     # Wan2.2 dependencies
     .pip_install(
         "lmdb==1.4.1",  # Required by Wan2.2 pipeline (used in training code)
+        "decord==0.6.0",  # Required by Wan2.2 pipeline (used in training code)
     )
     # Install wan22-turbo as a package from git (declared in pyproject.toml)
     .pip_install(
