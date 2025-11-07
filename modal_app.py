@@ -152,7 +152,13 @@ def download_models():
 
     # 4. Wan2.2 TI2V 5B Turbo (full repo with source code + model.pt)
     turbo_path = f"{models_dir}/Wan2.2-TI2V-5B-Turbo"
-    if not os.path.exists(turbo_path):
+    # Check if we have a valid clone (has pipeline module)
+    if not os.path.exists(os.path.join(turbo_path, "pipeline")):
+        # Remove old incomplete repo if it exists
+        if os.path.exists(turbo_path):
+            print(f"Removing old incomplete Wan2.2 repo at {turbo_path}...")
+            shutil.rmtree(turbo_path)
+
         print("Cloning Wan2.2 TI2V 5B Turbo repo (full source code)...")
         subprocess.run([
             "git", "clone",
