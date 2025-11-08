@@ -191,6 +191,23 @@ def load_transformer(config, meta_transformer=False):
             except KeyError:
                 pass
 
+        # Monkeypatch the Wan22Model.from_pretrained to use absolute path
+        # This fixes the hardcoded "wan_models/{model_name}/" path issue
+        from diffusers.models import ModelMixin
+        original_from_pretrained = ModelMixin.from_pretrained
+
+        def patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            # If path contains "wan_models/", replace with absolute path to turbo repo
+            if isinstance(pretrained_model_name_or_path, str) and "wan_models/" in pretrained_model_name_or_path:
+                model_name = pretrained_model_name_or_path.replace("wan_models/", "").rstrip("/")
+                abs_path = os.path.join(turbo_dir, "wan_models", model_name)
+                log.debug(f"Patching model path: {pretrained_model_name_or_path} -> {abs_path}")
+                pretrained_model_name_or_path = abs_path
+            return original_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+        ModelMixin.from_pretrained = classmethod(patched_from_pretrained)
+        log.debug("Applied monkeypatch for Wan22Model.from_pretrained")
+
         # Now import from pipeline - should get turbo version due to sys.path manipulation
         from pipeline import Wan22FewstepInferencePipeline
         log.debug("Successfully imported Wan22FewstepInferencePipeline from turbo pipeline")
