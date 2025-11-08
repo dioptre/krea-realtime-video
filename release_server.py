@@ -197,10 +197,10 @@ def load_transformer(config, meta_transformer=False):
         original_from_pretrained = ModelMixin.from_pretrained.__func__
 
         def patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
-            # If path contains "wan_models/", replace with absolute path to turbo repo
+            # If path contains "wan_models/", replace with absolute path to models folder
             if isinstance(pretrained_model_name_or_path, str) and "wan_models/" in pretrained_model_name_or_path:
                 model_name = pretrained_model_name_or_path.replace("wan_models/", "").rstrip("/")
-                abs_path = os.path.join(turbo_dir, "wan_models", model_name)
+                abs_path = os.path.join(MODEL_FOLDER, model_name)
                 log.debug(f"Patching model path: {pretrained_model_name_or_path} -> {abs_path}")
                 pretrained_model_name_or_path = abs_path
             return original_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
