@@ -162,7 +162,8 @@ def load_transformer(config, meta_transformer=False):
     log.debug(f"Transformer import took: {t_import - t_start:.2f}s")
 
     # Detect model_name early to decide loading strategy
-    model_name = getattr(config, "model_kwargs", {}).get("model_name", None)
+    # model_name can be at top level (Wan2.2) or nested under model_kwargs (Wan2.1)
+    model_name = config.get("model_name", None) or getattr(config, "model_kwargs", {}).get("model_name", None)
     is_bidirectional = config.get("is_bidirectional", False)
 
     # For Wan2.2, use Wan22FewstepInferencePipeline from installed package
