@@ -193,6 +193,19 @@ def download_models():
         os.symlink(base_model_path, wan22_model_link)
         print(f"✓ Created symlink: {wan22_model_link} -> {base_model_path}")
 
+    # 5. Download Wan2.2 checkpoint model.pt
+    checkpoint_path = os.path.join(turbo_path, "model.pt")
+    if not os.path.exists(checkpoint_path):
+        print("Downloading Wan2.2 model.pt checkpoint...")
+        subprocess.run([
+            "huggingface-cli", "download",
+            "quanhaol/Wan2.2-TI2V-5B-Turbo",
+            "model.pt",
+            "--local-dir", turbo_path,
+            "--local-dir-use-symlinks", "False"
+        ], check=True)
+        print(f"✓ Downloaded checkpoint to {checkpoint_path}")
+
     models_volume.commit()
     print("✓ All models downloaded and cached (14B, 1.3B, Wan2.2 base + Turbo)!")
     return True
