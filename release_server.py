@@ -194,7 +194,7 @@ def load_transformer(config, meta_transformer=False):
         # Monkeypatch the Wan22Model.from_pretrained to use absolute path
         # This fixes the hardcoded "wan_models/{model_name}/" path issue
         from diffusers.models import ModelMixin
-        original_from_pretrained = ModelMixin.from_pretrained
+        original_from_pretrained = ModelMixin.from_pretrained.__func__
 
         def patched_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
             # If path contains "wan_models/", replace with absolute path to turbo repo
