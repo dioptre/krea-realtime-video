@@ -178,6 +178,21 @@ def download_models():
         ], check=True)
         print(f"✓ Cloned Wan2.2 Turbo repo to {turbo_path}")
 
+    # Create wan_models symlink structure for turbo repo's hardcoded paths
+    wan_models_path = os.path.join(turbo_path, "wan_models")
+    wan22_model_link = os.path.join(wan_models_path, "Wan2.2-TI2V-5B")
+    os.makedirs(wan_models_path, exist_ok=True)
+
+    # Remove old symlink if it exists
+    if os.path.islink(wan22_model_link):
+        os.remove(wan22_model_link)
+
+    # Create symlink to base model
+    if not os.path.exists(wan22_model_link):
+        base_model_path = f"{models_dir}/Wan2.2-TI2V-5B"
+        os.symlink(base_model_path, wan22_model_link)
+        print(f"✓ Created symlink: {wan22_model_link} -> {base_model_path}")
+
     models_volume.commit()
     print("✓ All models downloaded and cached (14B, 1.3B, Wan2.2 base + Turbo)!")
     return True
