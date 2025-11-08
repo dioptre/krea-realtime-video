@@ -227,6 +227,27 @@ def load_transformer(config, meta_transformer=False):
         ModelMixin.from_pretrained = classmethod(patched_from_pretrained)
         log.debug("Applied monkeypatch for Wan22Model.from_pretrained")
 
+        # Monkeypatch AutoTokenizer.from_pretrained to handle wan_models paths
+        # The tokenizer loading also uses hardcoded wan_models paths which need to be converted
+        from transformers.models.auto.tokenization_auto import AutoTokenizer
+        original_tokenizer_from_pretrained = AutoTokenizer.from_pretrained.__func__
+
+        def patched_tokenizer_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+            # If path contains "wan_models/", replace with absolute path to models folder
+            if isinstance(pretrained_model_name_or_path, str) and "wan_models/" in pretrained_model_name_or_path:
+                # Extract the model name (everything before first /)
+                parts = pretrained_model_name_or_path.split("/")
+                model_name = parts[0].replace("wan_models", "")
+                # Build the absolute path: /models/{model_name}/{rest}
+                rest_path = "/".join(parts[1:]) if len(parts) > 1 else ""
+                abs_path = os.path.join(MODEL_FOLDER, model_name.strip("/"), rest_path)
+                log.debug(f"Patching tokenizer path: {pretrained_model_name_or_path} -> {abs_path}")
+                pretrained_model_name_or_path = abs_path
+            return original_tokenizer_from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs)
+
+        AutoTokenizer.from_pretrained = classmethod(patched_tokenizer_from_pretrained)
+        log.debug("Applied monkeypatch for AutoTokenizer.from_pretrained")
+
         # Now import from pipeline - should get turbo version due to sys.path manipulation
         from pipeline import Wan22FewstepInferencePipeline
         log.debug("Successfully imported Wan22FewstepInferencePipeline from turbo pipeline")
