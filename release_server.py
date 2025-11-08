@@ -191,8 +191,27 @@ def load_transformer(config, meta_transformer=False):
             except KeyError:
                 pass
 
+        # Monkeypatch torch.load to handle hardcoded "wan_models/{model_name}/" paths
+        # WanTextEncoder and other modules use direct torch.load() with relative paths
+        import torch as torch_orig
+        original_torch_load = torch_orig.load
+
+        def patched_torch_load(f, *args, **kwargs):
+            if isinstance(f, str):
+                # Convert relative wan_models paths to absolute paths
+                if "wan_models/" in f:
+                    model_name = f.replace("wan_models/", "").split("/")[0]
+                    rest_path = f.replace(f"wan_models/{model_name}/", "")
+                    abs_path = os.path.join(MODEL_FOLDER, model_name, rest_path)
+                    log.debug(f"Patching torch.load path: {f} -> {abs_path}")
+                    f = abs_path
+            return original_torch_load(f, *args, **kwargs)
+
+        torch_orig.load = patched_torch_load
+        log.debug("Applied monkeypatch for torch.load")
+
         # Monkeypatch the Wan22Model.from_pretrained to use absolute path
-        # This fixes the hardcoded "wan_models/{model_name}/" path issue
+        # This fixes the hardcoded "wan_models/{model_name}/" path issue for model loading
         from diffusers.models import ModelMixin
         original_from_pretrained = ModelMixin.from_pretrained.__func__
 
