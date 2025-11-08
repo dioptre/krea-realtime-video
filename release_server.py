@@ -170,6 +170,23 @@ def load_transformer(config, meta_transformer=False):
     if model_name and "2.2" in model_name and is_bidirectional:
         log.info(f"Detected Wan2.2 model ({model_name}), using Wan22FewstepInferencePipeline")
 
+        # Create wan_models symlink for turbo repo's hardcoded path expectations
+        wan_models_dir = os.path.join(MODEL_FOLDER, "wan2.2_turbo_work", "wan_models")
+        wan_model_link = os.path.join(wan_models_dir, "Wan2.2-TI2V-5B")
+        os.makedirs(wan_models_dir, exist_ok=True)
+
+        # Remove old symlink if it exists and create new one
+        if os.path.islink(wan_model_link):
+            os.remove(wan_model_link)
+        if not os.path.exists(wan_model_link):
+            target = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B")
+            os.symlink(target, wan_model_link)
+            log.debug(f"Created symlink: {wan_model_link} -> {target}")
+
+        # Change to the work directory so relative paths work
+        os.chdir(os.path.join(MODEL_FOLDER, "wan2.2_turbo_work"))
+        log.debug(f"Changed working directory to {os.getcwd()}")
+
         # Load Wan22FewstepInferencePipeline from the turbo repo
         # We add turbo_dir to sys.path at position 0 to override our app's pipeline directory
         turbo_dir = os.path.join(MODEL_FOLDER, "Wan2.2-TI2V-5B-Turbo")
