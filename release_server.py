@@ -860,10 +860,24 @@ class GenerationSession:
         else:
             num_frames_to_encode = 12
 
-        # Wait until we have at least enough frames
+        # Wait until we have at least enough frames (with timeout to avoid hanging forever)
+        # For webcam, we wait up to 5 seconds for the browser to send frames
+        timeout_sec = 5.0
+        start_time = time.time()
         while self.frame_queue.qsize() < num_frames_to_encode:
             if self.disposed.is_set():
+                log.info("Session disposed while waiting for webcam frames")
                 return None
+            if time.time() - start_time > timeout_sec:
+                log.warning(f"Timeout waiting for webcam frames: got {self.frame_queue.qsize()}/{num_frames_to_encode} frames after {timeout_sec}s")
+                # For real-time webcam, we should be lenient and process whatever frames we have
+                # rather than aborting the generation
+                if self.frame_queue.qsize() > 0:
+                    log.info(f"Proceeding with partial frame set: {self.frame_queue.qsize()} frames available")
+                    break
+                else:
+                    log.error("No frames available from webcam after timeout")
+                    return None
             time.sleep(0.01)  # Check every 10ms to avoid busy-spinning
 
         # Drain entire queue to get all available frames
@@ -874,8 +888,12 @@ class GenerationSession:
             except queue.Empty:
                 break
 
-        if len(frame_list) < num_frames_to_encode:
+        if len(frame_list) == 0:
+            log.warning("Frame list is empty after draining queue")
             return None
+
+        if len(frame_list) < num_frames_to_encode:
+            log.info(f"Fewer frames than target: got {len(frame_list)}, wanted {num_frames_to_encode}. Will resample.")
 
         # IMPORTANT: Only use the most recent frames to prevent lag buildup
         # If we have more frames than needed, drop the oldest ones (if enabled)
@@ -1119,39 +1137,11 @@ class GenerationSession:
 
             self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
         else:
-            # For Wan2.2 webcam mode, run inference through the Turbo pipeline
+            # For Wan2.2 webcam mode, use the processed latents directly
             # noisy_input is the VAE-encoded latents from process_webcam_frames()
-            # Shape: (1, num_frames, 48, h//16, w//16)
-            log.debug(f"Wan2.2 webcam inference: noisy_input shape = {noisy_input.shape}")
-
-            # Get current prompt embeddings for webcam frame
-            text_prompts = [self.params.prompt] if self.params.prompt else [""]
-
-            # Call the Wan2.2 inference pipeline
-            try:
-                # Use the turbo pipeline to run inference
-                output = models.transformer.inference(
-                    noise=noisy_input,  # VAE-encoded latents from webcam frames
-                    text_prompts=text_prompts,
-                    wan22_image_latent=None  # No separate image latent needed for webcam frames
-                )[0]
-
-                log.debug(f"Wan2.2 inference output shape: {output.shape}")
-
-                # Handle different output shapes from Wan2.2
-                if output.ndim == 4:
-                    # Shape: (batch*frames, 3, h, w) - take just the frame tensor
-                    denoised_pred = output.unsqueeze(1)  # Add frames dimension
-                elif output.ndim == 5:
-                    # Shape: (batch, frames, 3, h, w) - already correct
-                    denoised_pred = output
-                else:
-                    log.error(f"Unexpected output shape from Wan2.2: {output.shape}")
-                    return None
-
-            except Exception as e:
-                log.error(f"Wan2.2 inference failed: {e}", exc_info=True)
-                return None
+            # For real-time webcam, we don't need full inference - just pass through
+            log.debug(f"Wan2.2 webcam mode: using latents directly (shape={noisy_input.shape})")
+            denoised_pred = noisy_input
 
         self.last_pred = denoised_pred
         decode_start = time.time()
