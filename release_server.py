@@ -806,6 +806,19 @@ class GenerationSession:
         # Resample to target number of frames for temporal spacing
         frames_to_encode = resample_array(frame_list, num_frames_to_encode)
 
+        # Verify all frames have matching dimensions
+        frame_shapes = [f.shape for f in frames_to_encode]
+        if not all(shape == frame_shapes[0] for shape in frame_shapes):
+            log.warning(f"Inconsistent frame shapes detected: {set(frame_shapes)}. Resampling may have caused variation.")
+
+        # Log the actual frame shape to verify resizing worked
+        actual_shape = frames_to_encode[0].shape
+        expected_shape = (3, self.params.height, self.params.width)
+        if actual_shape != expected_shape:
+            log.warning(f"Frame shape mismatch - Got {actual_shape}, expected {expected_shape}")
+        else:
+            log.info(f"✓ Frame shape correct: {actual_shape}")
+
         frames_tensor = torch.stack(frames_to_encode)
 
         latents, self.encode_vae_cache = encode_video_latent(
