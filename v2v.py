@@ -147,8 +147,16 @@ def encode_video_latent(vae, encode_vae_cache, resample_to=16, max_frames=81, vi
         frames = frames[:max_frames]
     # print("frames shape: ", frames.shape)
 
-    h = h // vae_stride[1] * vae_stride[1]
-    w = w // vae_stride[2] * vae_stride[2]
+    # Ensure dimensions are properly aligned to VAE stride requirements
+    # IMPORTANT: Frame dimensions MUST be exactly divisible by vae_stride
+    # Do NOT round up - only round down to ensure input >= kernel size
+    h = (h // vae_stride[1]) * vae_stride[1]
+    w = (w // vae_stride[2]) * vae_stride[2]
+
+    # Verify dimensions are valid for VAE (no padding should occur)
+    original_h, original_w = frames.shape[2:]
+    if (h, w) != (original_h, original_w):
+        print(f"Resizing frames from ({original_w}, {original_h}) to ({w}, {h}) for VAE alignment")
 
     frames = torch.nn.functional.interpolate(frames.cuda(), size=(h, w), mode='bicubic').transpose(0, 1).to(dtype)
     
