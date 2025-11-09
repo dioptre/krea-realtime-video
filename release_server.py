@@ -1108,8 +1108,12 @@ async def test_wan22():
             # Create random noise
             noise = torch.randn(1, 4, 60, 80, device="cuda", dtype=torch.bfloat16)
 
-            # Run inference
-            output = pipe.inference(noise, text_prompts)
+            # Run inference with wan22_image_latent=None for text-to-video mode
+            output = pipe.inference(
+                noise=noise,
+                text_prompts=text_prompts,
+                wan22_image_latent=None
+            )[0]
             log.info(f"Output shape: {output.shape}")
 
             # Extract frames and save
