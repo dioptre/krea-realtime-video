@@ -1499,27 +1499,94 @@ async def process_webcam(
         frames_np = frames_np.astype(np.uint8)
         frames_np = np.transpose(frames_np, (0, 2, 3, 1))  # (T, H, W, 3)
 
-        # TEST: ALWAYS apply transformation (testing if the transformation logic works)
-        log.info(f"🔍 Applying underwater transformation for testing (prompt was: '{prompt}')")
+        # Apply Wan2.2 model inference for actual AI-powered transformation
+        log.info(f"🌊 Starting Wan2.2 video-to-video inference for prompt: '{prompt}'")
 
-        # Log frame statistics before transformation
-        log.info(f"  Before: R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
+        # Load Wan2.2 models for inference
+        log.info("Loading Wan2.2 models...")
 
-        # Enhance blues and cyans for underwater effect
-        frames_np = frames_np.astype(np.float32)
-        log.info(f"  Converted to float32: dtype={frames_np.dtype}, min={frames_np.min():.2f}, max={frames_np.max():.2f}")
+        # Create a minimal config for Wan2.2
+        from omegaconf import OmegaConf
+        config = OmegaConf.create({
+            'is_bidirectional': True,
+            'model_name': 'Wan2.2',
+            'checkpoint_path': os.path.join(MODEL_FOLDER, 'checkpoints', 'Wan2.2.pt')
+        })
 
-        # Reduce red/green, enhance blue - STRONGER effect for testing
-        log.info(f"  Applying: Red *= 0.5, Green *= 0.5, Blue *= 1.8 (STRONGER)")
-        frames_np[:, :, :, 0] = frames_np[:, :, :, 0] * 0.5  # Red: reduce more
-        frames_np[:, :, :, 1] = frames_np[:, :, :, 1] * 0.5  # Green: reduce more
-        frames_np[:, :, :, 2] = np.clip(frames_np[:, :, :, 2] * 1.8, 0, 255)  # Blue: enhance more
+        try:
+            # Load text encoder first
+            log.info("Loading text encoder...")
+            text_encoder = load_text_encoder()
 
-        log.info(f"  After multiplication: R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
+            # Load transformer (Wan2.2 model)
+            log.info("Loading Wan2.2 transformer...")
+            transformer = load_transformer(config)
 
-        frames_np = np.clip(frames_np, 0, 255).astype(np.uint8)
-        log.info(f"  After clipping to uint8: dtype={frames_np.dtype}, R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
-        log.info("✓ Transformation applied successfully")
+            # Load VAE encoder/decoder
+            log.info("Loading VAE encoder/decoder...")
+            vae_encoder, vae_decoder = load_vae(config)
+
+            # Create Models instance
+            models = Models(text_encoder, transformer, transformer, vae_encoder, vae_decoder)  # For Wan2.2, transformer IS pipeline
+            log.info("✓ All models loaded successfully")
+        except Exception as e:
+            log.error(f"Failed to load models: {e}", exc_info=True)
+            raise
+
+        # Encode frames to latent space
+        log.info("Encoding frames to latent space...")
+        with torch.inference_mode():
+            # Convert frames to tensor: (B, T, H, W, 3) → (B, T, 3, H, W)
+            frames_tensor = torch.from_numpy(frames_np).to(torch.cuda.current_device())
+            frames_tensor = frames_tensor.unsqueeze(0)  # Add batch dim: (1, T, H, W, 3)
+            frames_tensor = frames_tensor.permute(0, 1, 4, 2, 3)  # → (1, T, 3, H, W)
+            frames_tensor = frames_tensor.float() / 255.0  # Normalize to [0, 1]
+            frames_tensor = (frames_tensor - 0.5) * 2  # Convert to [-1, 1]
+
+            log.info(f"  Frames tensor shape: {frames_tensor.shape}, dtype: {frames_tensor.dtype}, range: [{frames_tensor.min():.4f}, {frames_tensor.max():.4f}]")
+
+            # Encode frames to latents
+            frames_latent = vae_encoder(frames_tensor)
+            log.info(f"  Encoded latent shape: {frames_latent.shape}, dtype: {frames_latent.dtype}")
+
+            # Encode text prompt
+            log.info(f"Encoding text prompt: '{prompt}'")
+            text_emb_dict = text_encoder(text_prompts=[prompt])
+            for key, value in text_emb_dict.items():
+                text_emb_dict[key] = value.to(dtype=torch.bfloat16).contiguous()
+            log.info(f"  Text embeddings shape: {text_emb_dict['prompt_embeds'].shape}")
+
+            # Create noise tensor (same shape as latents)
+            noise = torch.randn_like(frames_latent, dtype=torch.bfloat16)
+            log.info(f"  Noise shape: {noise.shape}")
+
+            # Run Wan2.2 inference
+            log.info("Running Wan2.2 inference with text conditioning...")
+            try:
+                output = transformer.inference(
+                    noise=noise,
+                    text_prompts=[prompt],
+                    wan22_image_latent=frames_latent  # Pass encoded frames for video-to-video
+                )[0]
+                log.info(f"✓ Inference complete. Output shape: {output.shape}")
+            except Exception as e:
+                log.error(f"Inference failed: {e}", exc_info=True)
+                raise
+
+            # Decode output latents back to pixel space
+            log.info("Decoding latents to pixel space...")
+            pixels, _ = vae_decoder(output.half(), None, None)
+            log.info(f"  Decoded pixels shape: {pixels.shape}, dtype: {pixels.dtype}")
+
+            # Convert pixels from [-1, 1] to [0, 255]
+            pixels_np = pixels[0].cpu().numpy()  # Remove batch: (1, T, 3, H, W) → (T, 3, H, W)
+            pixels_np = ((pixels_np + 1) / 2 * 255).astype(np.uint8)  # [-1, 1] → [0, 255]
+            pixels_np = np.transpose(pixels_np, (0, 2, 3, 1))  # (T, 3, H, W) → (T, H, W, 3)
+
+            log.info(f"✓ Pixel conversion complete. Shape: {pixels_np.shape}, Range: [{pixels_np.min()}, {pixels_np.max()}]")
+            frames_np = pixels_np
+
+        log.info("✓ Wan2.2 video-to-video transformation applied successfully")
 
         # Write MP4
         log.info(f"Writing output MP4 with {len(frames_np)} frames...")
