@@ -483,12 +483,15 @@ def load_all(config: OmegaConf, meta_transformer=False):
     """
     log.info("Starting model loading...")
     t_total_start = time.time()
-    
+
     # Extract settings from config
     checkpoint_path = config.get('checkpoint_path', './checkpoints/self_forcing_dmd.pt')
     log.debug(f"Using checkpoint: {checkpoint_path}")
-    
-    
+
+    # Detect model_name and is_bidirectional for pipeline loading decision
+    model_name = config.get("model_name", None) or getattr(config, "model_kwargs", {}).get("model_name", None)
+    is_bidirectional = config.get("is_bidirectional", False)
+
     # Create progress bar with 4 stages
     with tqdm(total=4, desc="Loading models") as pbar:
         # Load transformer
@@ -514,11 +517,16 @@ def load_all(config: OmegaConf, meta_transformer=False):
         log.debug(f"Loading VAE took: {time.time() - t_stage_start:.2f}s")
         pbar.update(1)
 
-        # Initialize pipeline
-        pbar.set_description("Initializing pipeline")
-        t_stage_start = time.time()
-        pipeline = load_pipeline(config, torch.cuda.current_device(), transformer, text_encoder, vae_decoder)
-        log.debug(f"Initializing pipeline took: {time.time() - t_stage_start:.2f}s")
+        # Initialize pipeline (only for Wan2.1, Wan2.2 pipeline already loaded in transformer)
+        if not (is_bidirectional and model_name and "2.2" in model_name):
+            pbar.set_description("Initializing pipeline")
+            t_stage_start = time.time()
+            pipeline = load_pipeline(config, torch.cuda.current_device(), transformer, text_encoder, vae_decoder)
+            log.debug(f"Initializing pipeline took: {time.time() - t_stage_start:.2f}s")
+        else:
+            # For Wan2.2, transformer IS the pipeline
+            pipeline = transformer
+            log.debug("Using Wan2.2 pipeline directly from transformer")
         pbar.update(1)
     
     t_total_end = time.time()
