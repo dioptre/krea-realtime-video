@@ -1061,8 +1061,13 @@ class GenerationSession:
             # Only for Wan2.1 (Wan2.2 doesn't use block-wise generation)
             if not self.is_wan22 and self.num_frame_per_block is not None:
                 noisy_input = self.noise[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block]
+            elif self.is_wan22:
+                # For Wan2.2, we need to handle text-to-video inference
+                # Skip for now - Wan2.2 should use webcam_mode for real-time generation
+                log.warning("Wan2.2 text-to-video mode not fully supported yet, skipping generation")
+                return None
             else:
-                # For Wan2.2, return early - shouldn't reach here
+                # Shouldn't reach here
                 return None
 
         if self.interpolated_prompt_embeds:
@@ -1113,6 +1118,11 @@ class GenerationSession:
                     )
 
             self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
+        else:
+            # For Wan2.2 webcam mode, use the latents directly as denoised_pred
+            # (webcam_mode only path - non-webcam Wan2.2 was already rejected above)
+            log.debug("Wan2.2 using latents directly for decode (webcam mode)")
+            denoised_pred = noisy_input
 
         self.last_pred = denoised_pred
         decode_start = time.time()
