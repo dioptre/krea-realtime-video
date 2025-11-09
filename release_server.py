@@ -1119,19 +1119,35 @@ async def test_wan22():
             log.info(f"Output shape: {output.shape}")
 
             # Extract frames and save
-            # output shape is (batch, frames, channels, height, width)
+            log.info(f"Output shape from inference: {output.shape}, dtype: {output.dtype}")
             output_normalized = output.add_(1.0).mul_(0.5).clamp_(0.0, 1.0)
 
-            for frame_idx in range(output.shape[1]):
-                # Extract frame: shape (channels, height, width) -> need (height, width, channels) for PIL
-                frame = output_normalized[0, frame_idx]  # (C, H, W)
-                frame = frame.permute(1, 2, 0)  # (H, W, C)
-                frame_np = (frame * 255).cpu().to(torch.uint8).numpy()
-                frame_pil = Image.fromarray(frame_np, "RGB")
-                frame_path = frames_dir / f"frame_{len(frame_list):04d}.png"
-                frame_pil.save(frame_path)
-                frame_list.append(frame_path)
-                log.info(f"Saved frame {len(frame_list)}")
+            # output shape varies - could be (N, 3, H, W) where N is total number of frames
+            # or (batch, frames, 3, H, W)
+            if output.ndim == 4:
+                # Shape is (N, 3, H, W) - iterate over first dimension
+                for frame_idx in range(output_normalized.shape[0]):
+                    frame = output_normalized[frame_idx]  # (C, H, W)
+                    frame = frame.permute(1, 2, 0)  # (H, W, C)
+                    frame_np = (frame * 255).cpu().to(torch.uint8).numpy()
+                    frame_pil = Image.fromarray(frame_np, "RGB")
+                    frame_path = frames_dir / f"frame_{len(frame_list):04d}.png"
+                    frame_pil.save(frame_path)
+                    frame_list.append(frame_path)
+                    log.info(f"Saved frame {len(frame_list)}")
+            elif output.ndim == 5:
+                # Shape is (batch, frames, 3, H, W)
+                for frame_idx in range(output_normalized.shape[1]):
+                    frame = output_normalized[0, frame_idx]  # (C, H, W)
+                    frame = frame.permute(1, 2, 0)  # (H, W, C)
+                    frame_np = (frame * 255).cpu().to(torch.uint8).numpy()
+                    frame_pil = Image.fromarray(frame_np, "RGB")
+                    frame_path = frames_dir / f"frame_{len(frame_list):04d}.png"
+                    frame_pil.save(frame_path)
+                    frame_list.append(frame_path)
+                    log.info(f"Saved frame {len(frame_list)}")
+            else:
+                raise ValueError(f"Unexpected output shape: {output.shape}")
 
         log.info(f"Total frames: {len(frame_list)}")
 
