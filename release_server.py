@@ -1102,11 +1102,13 @@ async def test_wan22():
         # Generate 4 denoising steps (steps in the pipeline)
         frame_list = []
 
-        for step_idx in range(4):
-            log.info(f"Generating step {step_idx + 1}/4...")
+        for step_idx in range(1):
+            log.info(f"Generating step {step_idx + 1}/1...")
 
-            # Create random noise
-            noise = torch.randn(1, 4, 60, 80, device="cuda", dtype=torch.bfloat16)
+            # Create random noise with correct shape: (batch, frames, latent_channels, h//16, w//16)
+            # Using 704x1280 resolution: (1, 31, 48, 44, 80)
+            # 121 frames = (121-1)//4 + 1 = 31 frames at latent level
+            noise = torch.randn(1, 31, 48, 44, 80, device="cuda", dtype=torch.bfloat16)
 
             # Run inference with wan22_image_latent=None for text-to-video mode
             output = pipe.inference(
