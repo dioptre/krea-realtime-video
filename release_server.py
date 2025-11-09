@@ -667,9 +667,14 @@ class GenerationSession:
         self.init_models(models, self.params)
         self.models = models
 
-        self.denoising_step_list = get_denoising_schedule(
-            self.zero_padded_timesteps, self.params.strength, steps=self.params.num_denoising_steps
-        )
+        # For Wan2.1, zero_padded_timesteps is set in init_models()
+        # For Wan2.2, we don't use denoising schedules (handled by inference pipeline)
+        if self.is_wan22:
+            self.denoising_step_list = []
+        else:
+            self.denoising_step_list = get_denoising_schedule(
+                self.zero_padded_timesteps, self.params.strength, steps=self.params.num_denoising_steps
+            )
 
         print("denoising step list: ", self.denoising_step_list)
         if self.input_video is not None and not self.is_wan22:
