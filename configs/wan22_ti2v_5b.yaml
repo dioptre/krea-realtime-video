@@ -7,3 +7,4 @@ denoising_step_list:
   - 250
 is_bidirectional: true  # Use bidirectional Wan22FewstepInferencePipeline, not causal
 checkpoint_path: Wan2.2-TI2V-5B-Turbo  # Load from turbo repo cloned in /models
+use_taehv: false  # Temporal attention head evolution (not used for Wan2.2)
