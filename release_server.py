@@ -757,10 +757,13 @@ class GenerationSession:
             # CRITICAL: Resize image to exact target dimensions before converting to tensor
             # This ensures all frames have the same dimensions for VAE encoder (requires exactly divisible by 16)
             original_image_size = image.size  # (width, height)
-            image = image.resize((self.params.width, self.params.height), Image.LANCZOS)
+            target_size = (self.params.width, self.params.height)
+            if original_image_size != target_size:
+                log.warning(f"Frame size mismatch: received {original_image_size}, target {target_size}")
+            image = image.resize(target_size, Image.LANCZOS)
             resized_image_size = image.size
-            if original_image_size != resized_image_size:
-                log.info(f"Frame resized from {original_image_size} to {resized_image_size}")
+            if resized_image_size != target_size:
+                log.error(f"CRITICAL: Resize failed! Expected {target_size}, got {resized_image_size}")
 
             tensor = TF.to_tensor(image).to(dtype=torch.float16).pin_memory()
             with torch.cuda.stream(upload_stream):
