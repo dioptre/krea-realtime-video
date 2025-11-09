@@ -603,9 +603,13 @@ class GenerationSession:
         self.start_frame = params.start_frame
 
         self.width = params.width // 8 * 8
-        self.height = params.height // 8 * 8 
-        self.latent_width = self.width // 8
-        self.latent_height = self.height // 8
+        self.height = params.height // 8 * 8
+        self.latent_width = self.width // 16  # Divide by 16 total for frame_seq_length
+        self.latent_height = self.height // 16  # Divide by 16 total for frame_seq_length
+        # Calculate frame_seq_length dynamically based on resolution
+        # Formula: (height / 16) * (width / 16) where 16 is spatial downsampling factor
+        # Default (480x832): (480/16) * (832/16) = 30 * 52 = 1560 ✓
+        self.frame_seq_length = (self.latent_height) * (self.latent_width)
         self.resume_latents: Optional[torch.Tensor] = None
         self.last_frame_latent = None
         
@@ -911,7 +915,7 @@ class GenerationSession:
         block_mask = models.pipeline.generator.model._prepare_blockwise_causal_attn_mask(
             device=str(clean_context_frames.device),
             num_frames=clean_context_frames.shape[1],
-            frame_seqlen=models.pipeline.frame_seq_length,
+            frame_seqlen=self.frame_seq_length,  # Use dynamic frame_seq_length, not pipeline's hardcoded value
             num_frame_per_block=models.pipeline.num_frame_per_block,
             local_attn_size=-1,
         )
@@ -927,7 +931,7 @@ class GenerationSession:
             timestep=context_timestep,
             kv_cache=models.pipeline.kv_cache1,
             crossattn_cache=models.pipeline.crossattn_cache,
-            current_start=model_input_start_frame * models.pipeline.frame_seq_length,
+            current_start=model_input_start_frame * self.frame_seq_length,  # Use dynamic frame_seq_length
         )
         models.pipeline.generator.model.block_mask = None
         return model_input_start_frame
@@ -989,7 +993,7 @@ class GenerationSession:
                         timestep=timestep,
                         kv_cache=models.pipeline.kv_cache1,
                         crossattn_cache=models.pipeline.crossattn_cache,
-                        current_start=model_input_start_frame * models.pipeline.frame_seq_length
+                        current_start=model_input_start_frame * self.frame_seq_length  # Use dynamic frame_seq_length
                     )
                     start_time = time.time()
                     next_timestep = self.denoising_step_list[index + 1]
@@ -1008,7 +1012,7 @@ class GenerationSession:
                         timestep=timestep,
                         kv_cache=models.pipeline.kv_cache1,
                         crossattn_cache=models.pipeline.crossattn_cache,
-                        current_start=model_input_start_frame * models.pipeline.frame_seq_length
+                        current_start=model_input_start_frame * self.frame_seq_length  # Use dynamic frame_seq_length
                     )
 
             self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
