@@ -750,6 +750,10 @@ class GenerationSession:
             if self.params.horizontal_mirror:
                 image = image.transpose(Image.FLIP_LEFT_RIGHT)
 
+            # CRITICAL: Resize image to exact target dimensions before converting to tensor
+            # This ensures all frames have the same dimensions for VAE encoder (requires exactly divisible by 16)
+            image = image.resize((self.params.width, self.params.height), Image.LANCZOS)
+
             tensor = TF.to_tensor(image).to(dtype=torch.float16).pin_memory()
             with torch.cuda.stream(upload_stream):
                 tensor = tensor.to(self.gpu).sub_(0.5).mul_(2.0)
