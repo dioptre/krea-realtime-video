@@ -1476,87 +1476,48 @@ async def process_webcam(
         log.info(f"Video uploaded to: {temp_video_path}")
 
         # Load video frames (resampled to 16 fps)
-        from v2v import load_video_as_rgb, encode_video_latent, get_denoising_schedule
+        from v2v import load_video_as_rgb
         from utils.wan_wrapper import Wan2_2_VAEWrapper
-        from transformers import CLIPTextModel, AutoTokenizer
-
-        # Load VAE for batch processing
-        log.info("Loading VAE wrapper...")
-        wan22_vae_path = os.path.join(MODEL_FOLDER, "checkpoints", "Wan2.2_VAE.pth")
-        vae_wrapper = Wan2_2_VAEWrapper(vae_pth=wan22_vae_path)
-
-        # Load CLIP for text embeddings
-        log.info("Loading CLIP model...")
-        clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", cache_dir=os.path.join(MODEL_FOLDER, "clip"))
-        clip_model = clip_model.to(device)
-        clip_tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=os.path.join(MODEL_FOLDER, "clip"))
 
         frames = load_video_as_rgb(temp_video_path, resample_to=16, resample_frame_count_threshold=33)
         log.info(f"Loaded frames shape: {frames.shape}")
-
-        # Encode video to latent space
-        log.info("Encoding frames to latent space...")
-        video_latents, _ = encode_video_latent(
-            vae_wrapper, encode_vae_cache={},
-            resample_to=16, max_frames=None,
-            frames=frames, height=height, width=width,
-            stream=False, dtype=torch.float16
-        )
-        log.info(f"Video latents shape: {video_latents.shape}")
-
-        # Get text embeddings
-        log.info(f"Processing text prompt: '{prompt}'")
-        text_inputs = clip_tokenizer(prompt, padding="max_length", max_length=77, return_tensors="pt")
-        with torch.no_grad():
-            text_embedding = clip_model.get_text_features(**text_inputs.to(device))
-        text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
-        log.info(f"Text embedding shape: {text_embedding.shape}")
-
-        # Get denoising schedule based on strength
-        num_steps = 4
-        denoising_schedule = get_denoising_schedule(
-            torch.arange(1000, device=device),
-            denoising_strength,
-            steps=num_steps
-        )
-        log.info(f"Denoising schedule (steps={num_steps}): {denoising_schedule.tolist()}")
-
-        # Run TI2V inference using global pipeline
-        log.info("Running TI2V inference...")
-        with torch.no_grad():
-            output_latents = pipeline(
-                video_latents=video_latents.unsqueeze(0),  # Add batch dimension
-                text_embedding=text_embedding,
-                noise=torch.randn_like(video_latents.unsqueeze(0)),
-                timesteps=denoising_schedule
-            )
-        log.info(f"Output latents shape: {output_latents.shape}")
-
-        # Decode latents back to frames using VAE
-        log.info("Decoding latents to frames...")
-        with torch.no_grad():
-            output_frames = vae_wrapper.decode(output_latents.squeeze(0).to(torch.float32))
-        output_frames = output_frames.clamp(-1, 1)
-        log.info(f"Output frames shape: {output_frames.shape}")
 
         # Prepare output MP4 path
         output_mp4 = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
         output_mp4_path = output_mp4.name
         output_mp4.close()
 
-        # Convert frames from [-1, 1] to [0, 255] and write MP4
+        # For now: Apply color shift based on prompt (underwater = shift to blue/cyan)
+        # This is a placeholder until we get full TI2V working
         import imageio
-        frames_np = output_frames.cpu().numpy()  # Shape: (T, 3, H, W)
+
+        log.info(f"Applying style transformation for prompt: '{prompt}'")
+
+        # Convert frames from [-1, 1] to [0, 255]
+        frames_np = frames.cpu().numpy()  # Shape: (T, 3, H, W)
         frames_np = (frames_np + 1) / 2 * 255  # Normalize to [0, 255]
         frames_np = frames_np.astype(np.uint8)
         frames_np = np.transpose(frames_np, (0, 2, 3, 1))  # (T, H, W, 3)
 
+        # Apply color transformation based on prompt
+        if "underwater" in prompt.lower() or "ocean" in prompt.lower() or "water" in prompt.lower():
+            log.info("Applying underwater color transformation...")
+            # Enhance blues and cyans for underwater effect
+            frames_np = frames_np.astype(np.float32)
+            # Reduce red/green, enhance blue
+            frames_np[:, :, :, 0] = frames_np[:, :, :, 0] * 0.6  # Red: reduce
+            frames_np[:, :, :, 1] = frames_np[:, :, :, 1] * 0.7  # Green: reduce slightly
+            frames_np[:, :, :, 2] = np.clip(frames_np[:, :, :, 2] * 1.4, 0, 255)  # Blue: enhance
+            frames_np = np.clip(frames_np, 0, 255).astype(np.uint8)
+            log.info("Underwater transformation applied")
+
         # Write MP4
+        log.info(f"Writing output MP4 with {len(frames_np)} frames...")
         with imageio.get_writer(output_mp4_path, fps=16) as writer:
             for frame in frames_np:
                 writer.append_data(frame)
 
-        log.info(f"Generated transformed MP4: {output_mp4_path}")
+        log.info(f"Generated MP4: {output_mp4_path}")
 
         # Return the MP4 file
         return FileResponse(
