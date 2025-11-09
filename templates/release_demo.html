@@ -536,14 +536,14 @@
             <div class="param-grid">
                 <div class="field">
                     <label for="width">Width (pixels)</label>
-                    <input id="width" type="number" min="480" max="832" step="8" value="832">
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">832×480 or 480×832</div>
+                    <input id="width" type="number" min="256" max="2048" step="8" value="832">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Must be divisible by 8. Dynamic frame_seq_length</div>
                 </div>
                 <div class="field">
                     <label for="height">Height (pixels)</label>
-                    <input id="height" type="number" min="480" max="832" step="8" value="480">
+                    <input id="height" type="number" min="256" max="2048" step="8" value="480">
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                        <button id="flipOrientationBtn" type="button" style="padding: 4px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Flip to Portrait</button>
+                        <button id="flipOrientationBtn" type="button" style="padding: 4px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Flip Orientation</button>
                     </div>
                 </div>
                 <div class="field">
@@ -739,28 +739,62 @@
             const heightInput = document.getElementById("height");
             const seedInput = document.getElementById("seed");
 
-            // Support 832x480 (landscape) and 480x832 (portrait)
+            // Validate resolution: must be divisible by 8, within supported range
             const forceResolution = () => {
-                const w = Number(widthInput.value);
-                const h = Number(heightInput.value);
-                const isLandscape = (w === 832 && h === 480);
-                const isPortrait = (w === 480 && h === 832);
+                let w = Number(widthInput.value);
+                let h = Number(heightInput.value);
+                let needsCorrection = false;
 
-                if (!isLandscape && !isPortrait) {
-                    log("⚠ Only 832×480 (landscape) or 480×832 (portrait) is supported. Resetting to 832×480.");
-                    widthInput.value = 832;
-                    heightInput.value = 480;
-                    widthInput.style.borderColor = "#ff6b6b";
-                    heightInput.style.borderColor = "#ff6b6b";
+                // Validate width is divisible by 8
+                if (w % 8 !== 0) {
+                    w = Math.round(w / 8) * 8;
+                    needsCorrection = true;
+                }
+
+                // Validate height is divisible by 8
+                if (h % 8 !== 0) {
+                    h = Math.round(h / 8) * 8;
+                    needsCorrection = true;
+                }
+
+                // Apply corrected values
+                if (needsCorrection) {
+                    widthInput.value = w;
+                    heightInput.value = h;
+                    log(`✓ Adjusted resolution to ${w}×${h} (must be divisible by 8)`);
+                    widthInput.style.borderColor = "#fbbf24";
+                    heightInput.style.borderColor = "#fbbf24";
                     setTimeout(() => {
                         widthInput.style.borderColor = "";
                         heightInput.style.borderColor = "";
-                    }, 2000);
+                    }, 1500);
                 }
+
+                // Update canvas dimensions
+                videoCanvas.width = w;
+                videoCanvas.height = h;
             };
 
             widthInput.addEventListener("change", forceResolution);
             heightInput.addEventListener("change", forceResolution);
+
+            // Real-time preview of resolution changes
+            widthInput.addEventListener("input", () => {
+                const w = Number(widthInput.value);
+                const h = Number(heightInput.value);
+                if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
+                    videoCanvas.width = w;
+                    videoCanvas.height = h;
+                }
+            });
+            heightInput.addEventListener("input", () => {
+                const w = Number(widthInput.value);
+                const h = Number(heightInput.value);
+                if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
+                    videoCanvas.width = w;
+                    videoCanvas.height = h;
+                }
+            });
 
             // Flip orientation button
             const flipOrientationBtn = document.getElementById("flipOrientationBtn");
@@ -772,18 +806,21 @@
                 widthInput.value = currentHeight;
                 heightInput.value = currentWidth;
 
-                // Update button text
-                if (currentWidth === 832 && currentHeight === 480) {
+                // Update button text based on aspect ratio
+                if (currentWidth > currentHeight) {
                     flipOrientationBtn.textContent = "🔄 Flip to Landscape";
-                    log("Switched to portrait mode (480×832)");
+                    log(`Switched to portrait mode (${currentHeight}×${currentWidth})`);
                 } else {
                     flipOrientationBtn.textContent = "🔄 Flip to Portrait";
-                    log("Switched to landscape mode (832×480)");
+                    log(`Switched to landscape mode (${currentWidth}×${currentHeight})`);
                 }
 
                 // Update canvas dimensions
                 videoCanvas.width = Number(widthInput.value);
                 videoCanvas.height = Number(heightInput.value);
+
+                // Trigger change event to update server params
+                widthInput.dispatchEvent(new Event('change'));
             });
             const numBlocksInput = document.getElementById("numBlocks");
             const numBlocksValue = document.getElementById("numBlocksValue");
