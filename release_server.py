@@ -1119,10 +1119,15 @@ async def test_wan22():
             log.info(f"Output shape: {output.shape}")
 
             # Extract frames and save
+            # output shape is (batch, frames, channels, height, width)
             output_normalized = output.add_(1.0).mul_(0.5).clamp_(0.0, 1.0)
 
             for frame_idx in range(output.shape[1]):
-                frame_pil = TF.to_pil_image(output_normalized[0, frame_idx], "RGB")
+                # Extract frame: shape (channels, height, width) -> need (height, width, channels) for PIL
+                frame = output_normalized[0, frame_idx]  # (C, H, W)
+                frame = frame.permute(1, 2, 0)  # (H, W, C)
+                frame_np = (frame * 255).cpu().to(torch.uint8).numpy()
+                frame_pil = Image.fromarray(frame_np, "RGB")
                 frame_path = frames_dir / f"frame_{len(frame_list):04d}.png"
                 frame_pil.save(frame_path)
                 frame_list.append(frame_path)
