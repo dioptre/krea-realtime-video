@@ -1477,6 +1477,19 @@ async def process_webcam(
 
         # Load video frames (resampled to 16 fps)
         from v2v import load_video_as_rgb, encode_video_latent, get_denoising_schedule
+        from utils.wan_wrapper import Wan2_2_VAEWrapper
+        from transformers import CLIPTextModel, AutoTokenizer
+
+        # Load VAE for batch processing
+        log.info("Loading VAE wrapper...")
+        wan22_vae_path = os.path.join(MODEL_FOLDER, "checkpoints", "Wan2.2_VAE.pth")
+        vae_wrapper = Wan2_2_VAEWrapper(vae_pth=wan22_vae_path)
+
+        # Load CLIP for text embeddings
+        log.info("Loading CLIP model...")
+        clip_model = CLIPTextModel.from_pretrained("openai/clip-vit-large-patch14", cache_dir=os.path.join(MODEL_FOLDER, "clip"))
+        clip_model = clip_model.to(device)
+        clip_tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=os.path.join(MODEL_FOLDER, "clip"))
 
         frames = load_video_as_rgb(temp_video_path, resample_to=16, resample_frame_count_threshold=33)
         log.info(f"Loaded frames shape: {frames.shape}")
@@ -1484,7 +1497,7 @@ async def process_webcam(
         # Encode video to latent space
         log.info("Encoding frames to latent space...")
         video_latents, _ = encode_video_latent(
-            vae, encode_vae_cache={},
+            vae_wrapper, encode_vae_cache={},
             resample_to=16, max_frames=None,
             frames=frames, height=height, width=width,
             stream=False, dtype=torch.float16
@@ -1494,7 +1507,8 @@ async def process_webcam(
         # Get text embeddings
         log.info(f"Processing text prompt: '{prompt}'")
         text_inputs = clip_tokenizer(prompt, padding="max_length", max_length=77, return_tensors="pt")
-        text_embedding = clip_model.get_text_features(**text_inputs.to(device))
+        with torch.no_grad():
+            text_embedding = clip_model.get_text_features(**text_inputs.to(device))
         text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
         log.info(f"Text embedding shape: {text_embedding.shape}")
 
@@ -1507,7 +1521,7 @@ async def process_webcam(
         )
         log.info(f"Denoising schedule (steps={num_steps}): {denoising_schedule.tolist()}")
 
-        # Run TI2V inference
+        # Run TI2V inference using global pipeline
         log.info("Running TI2V inference...")
         with torch.no_grad():
             output_latents = pipeline(
@@ -1518,9 +1532,10 @@ async def process_webcam(
             )
         log.info(f"Output latents shape: {output_latents.shape}")
 
-        # Decode latents back to frames
+        # Decode latents back to frames using VAE
         log.info("Decoding latents to frames...")
-        output_frames = vae.decode(output_latents.squeeze(0).to(torch.float32)).sample
+        with torch.no_grad():
+            output_frames = vae_wrapper.decode(output_latents.squeeze(0).to(torch.float32))
         output_frames = output_frames.clamp(-1, 1)
         log.info(f"Output frames shape: {output_frames.shape}")
 
