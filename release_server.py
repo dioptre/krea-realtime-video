@@ -627,20 +627,35 @@ class GenerationSession:
         frame_cache_len = 1 + (params.kv_cache_num_frames - 1) * 4 
         self.frame_context_cache = deque(maxlen=frame_cache_len)
 
-        
+
         self.gpu_initialized = False
 
         self.encode_vae_cache: list[Optional[torch.Tensor]] = [None] * 55
         self.decode_vae_cache: list[Optional[torch.Tensor]] = [None] * 55
-        self.num_frame_per_block = 3
-       
+
+        # Detect if this is Wan2.2 (which doesn't have num_frame_per_block)
+        self.is_wan22 = not hasattr(models.pipeline, 'num_frame_per_block')
+
+        # Only set num_frame_per_block for Wan2.1 (Wan2.2 doesn't use this concept)
+        if not self.is_wan22:
+            self.num_frame_per_block = 3
+        else:
+            # For Wan2.2, we use a different inference pattern (no block-wise generation)
+            self.num_frame_per_block = None
+
         self.rnd = torch.Generator(self.gpu).manual_seed(self.params.seed)
 
-        num_latent_frames = self.num_blocks * self.num_frame_per_block
+        # Only initialize latent frames for Wan2.1
+        if not self.is_wan22 and self.num_frame_per_block is not None:
+            num_latent_frames = self.num_blocks * self.num_frame_per_block
 
-        latent_shape = [1, num_latent_frames, 16, self.latent_height, self.latent_width]
-        self.all_latents = torch.zeros(latent_shape, device=self.gpu, dtype=torch.bfloat16).contiguous()
-        self.noise = torch.randn(latent_shape, device=self.gpu, dtype=torch.bfloat16, generator=self.rnd).contiguous()
+            latent_shape = [1, num_latent_frames, 16, self.latent_height, self.latent_width]
+            self.all_latents = torch.zeros(latent_shape, device=self.gpu, dtype=torch.bfloat16).contiguous()
+            self.noise = torch.randn(latent_shape, device=self.gpu, dtype=torch.bfloat16, generator=self.rnd).contiguous()
+        else:
+            # For Wan2.2, initialize empty - not used in block-wise generation
+            self.all_latents = None
+            self.noise = None
 
         # Generation parameters
         self.current_start_frame = 0
@@ -657,7 +672,7 @@ class GenerationSession:
         )
 
         print("denoising step list: ", self.denoising_step_list)
-        if self.input_video is not None:
+        if self.input_video is not None and not self.is_wan22:
             init_denoising_strength_scaled = self.denoising_step_list[0] / 1000
             latents, _ = self.encode_v2v(self.input_video, max_frames=None, resample_to=None)
             latents = latents[None].to(self.gpu, dtype=self.noise.dtype).movedim(1, 2)
@@ -804,6 +819,11 @@ class GenerationSession:
         return latents
         
     def init_models(self, models: Models, params: GenerateParams):
+        # Skip Wan2.2 specific initialization - it doesn't need num_frame_per_block or KV cache setup
+        if not hasattr(models.pipeline, 'num_frame_per_block'):
+            log.info("Skipping Wan2.1-specific initialization for Wan2.2 model")
+            return
+
         attn_size = self.params.kv_cache_num_frames + models.pipeline.num_frame_per_block
         for block in models.pipeline.generator.model.blocks:
             block.self_attn.local_attn_size = -1
@@ -812,19 +832,22 @@ class GenerationSession:
             block.self_attn.local_attn_size = -1
         models.pipeline._initialize_kv_cache(batch_size=1, dtype=torch.bfloat16, device=gpu)
         models.pipeline._initialize_crossattn_cache(batch_size=1, dtype=torch.bfloat16, device=gpu)
-        models.pipeline.generator.model.block_mask = None 
+        models.pipeline.generator.model.block_mask = None
 
 
 
         # this prevents a cuda sync
         models.pipeline.scheduler = FlowMatchScheduler(shift=params.timestep_shift, sigma_min=0.0, extra_one_step=True)
         models.pipeline.scheduler.set_timesteps(1000, training=True)
-        
+
         st = models.pipeline.scheduler.timesteps
         self.zero_padded_timesteps = torch.cat((st.cpu(), torch.tensor([0], dtype=torch.float32))).to(torch.cuda.current_device())
 
 
     def get_clean_context_frames(self, models: Models):
+        # Only used for Wan2.1
+        if self.is_wan22:
+            return None
         current_kv_cache_num_frames = self.kv_cache_num_frames if self.kv_cache_num_frames is not None else self.params.kv_cache_num_frames
         clean_context_frames = self.all_latents[:, :self.current_start_frame]
         if self.params.keep_first_frame or (self.block_idx - 1) * models.pipeline.num_frame_per_block < current_kv_cache_num_frames:
@@ -850,6 +873,9 @@ class GenerationSession:
         self.resume_latents = latents
 
     def recompute_kv_cache(self, models: Models):
+        # Only used for Wan2.1
+        if self.is_wan22:
+            return 0
         if self.block_idx == 0:
             models.pipeline._initialize_kv_cache(batch_size=1, dtype=torch.bfloat16, device=self.gpu)
             if self.resume_latents is not None:
@@ -863,11 +889,11 @@ class GenerationSession:
             block.self_attn.num_frame_per_block = models.pipeline.num_frame_per_block
 
         current_kv_cache_num_frames = self.params.kv_cache_num_frames
-        
+
         model_input_start_frame = min(self.current_start_frame, current_kv_cache_num_frames)
-                
+
         clean_context_frames = self.get_clean_context_frames(models)
-        
+
         models.pipeline._initialize_kv_cache(
             batch_size=clean_context_frames.shape[0], dtype=clean_context_frames.dtype, device=clean_context_frames.device
         )
@@ -921,7 +947,12 @@ class GenerationSession:
             latents = latents[None].to("cuda", dtype=self.noise.dtype).movedim(1, 2)
             noisy_input = latents * (1.0 - denoising_strength_scaled) + torch.randn_like(latents) * denoising_strength_scaled
         else:
-            noisy_input = self.noise[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block]
+            # Only for Wan2.1 (Wan2.2 doesn't use block-wise generation)
+            if not self.is_wan22 and self.num_frame_per_block is not None:
+                noisy_input = self.noise[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block]
+            else:
+                # For Wan2.2, return early - shouldn't reach here
+                return None
 
         if self.interpolated_prompt_embeds:
             models.pipeline._initialize_crossattn_cache(batch_size=1, dtype=torch.bfloat16, device=self.gpu)
@@ -929,59 +960,61 @@ class GenerationSession:
             self.current_prompt_embeds = next_interpolated_text_emb.to(
                 dtype=self.current_prompt_embeds.dtype, device=self.current_prompt_embeds.device)
 
-        # This is set from config
-        for index, current_timestep in enumerate(self.denoising_step_list):
-            if self.disposed.is_set(): return
-            t_step_start = time.time()
-            # Normal initialize timestamp stuff
-            timestep = torch.ones([1, models.pipeline.num_frame_per_block], device=self.noise.device,
-                                dtype=torch.int64) * current_timestep
+        # This is set from config - Wan2.1 only
+        if not self.is_wan22:
+            for index, current_timestep in enumerate(self.denoising_step_list):
+                if self.disposed.is_set(): return
+                t_step_start = time.time()
+                # Normal initialize timestamp stuff
+                timestep = torch.ones([1, models.pipeline.num_frame_per_block], device=self.noise.device,
+                                    dtype=torch.int64) * current_timestep
 
-            self.conditional_dict['prompt_embeds'] = self.current_prompt_embeds
-            
-            if index < len(self.denoising_step_list) - 1:
-                start_time = time.time()
-                _, denoised_pred = models.transformer(
-                    noisy_image_or_video=noisy_input,
-                    conditional_dict=self.conditional_dict,
-                    timestep=timestep,
-                    kv_cache=models.pipeline.kv_cache1,
-                    crossattn_cache=models.pipeline.crossattn_cache,
-                    current_start=model_input_start_frame * models.pipeline.frame_seq_length
-                )
-                start_time = time.time()
-                next_timestep = self.denoising_step_list[index + 1]
-                noisy_input = models.pipeline.scheduler.add_noise(
-                    denoised_pred.flatten(0, 1),
-                    torch.randn(*denoised_pred.flatten(0, 1).shape, generator=self.rnd, device=denoised_pred.device, dtype=torch.bfloat16),
-                    next_timestep * torch.ones([1 * models.pipeline.num_frame_per_block], device=self.noise.device, dtype=torch.long, )
-                ).unflatten(0, denoised_pred.shape[:2])
-                # logging.debug("(renoise) time %f", time.time() - start_time)
-            else:
-                start_time = time.time()
-                # otherwise just denoise
-                _, denoised_pred = models.transformer(
-                    noisy_image_or_video=noisy_input,
-                    conditional_dict=self.conditional_dict,
-                    timestep=timestep,
-                    kv_cache=models.pipeline.kv_cache1,
-                    crossattn_cache=models.pipeline.crossattn_cache,
-                    current_start=model_input_start_frame * models.pipeline.frame_seq_length
-                )
+                self.conditional_dict['prompt_embeds'] = self.current_prompt_embeds
 
-        self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
+                if index < len(self.denoising_step_list) - 1:
+                    start_time = time.time()
+                    _, denoised_pred = models.transformer(
+                        noisy_image_or_video=noisy_input,
+                        conditional_dict=self.conditional_dict,
+                        timestep=timestep,
+                        kv_cache=models.pipeline.kv_cache1,
+                        crossattn_cache=models.pipeline.crossattn_cache,
+                        current_start=model_input_start_frame * models.pipeline.frame_seq_length
+                    )
+                    start_time = time.time()
+                    next_timestep = self.denoising_step_list[index + 1]
+                    noisy_input = models.pipeline.scheduler.add_noise(
+                        denoised_pred.flatten(0, 1),
+                        torch.randn(*denoised_pred.flatten(0, 1).shape, generator=self.rnd, device=denoised_pred.device, dtype=torch.bfloat16),
+                        next_timestep * torch.ones([1 * models.pipeline.num_frame_per_block], device=self.noise.device, dtype=torch.long, )
+                    ).unflatten(0, denoised_pred.shape[:2])
+                    # logging.debug("(renoise) time %f", time.time() - start_time)
+                else:
+                    start_time = time.time()
+                    # otherwise just denoise
+                    _, denoised_pred = models.transformer(
+                        noisy_image_or_video=noisy_input,
+                        conditional_dict=self.conditional_dict,
+                        timestep=timestep,
+                        kv_cache=models.pipeline.kv_cache1,
+                        crossattn_cache=models.pipeline.crossattn_cache,
+                        current_start=model_input_start_frame * models.pipeline.frame_seq_length
+                    )
+
+            self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
+
         self.last_pred = denoised_pred
         decode_start = time.time()
-        
+
         if (self.params.width, self.params.height) != (832, 480):
             print("Falling back to eager for VAE decode")
             ctx = torch.compiler.set_stance("force_eager")
         else:
             ctx = torch.compiler.set_stance("default")
-        
+
         with ctx:
             pixels, self.decode_vae_cache = models.vae_decoder(denoised_pred.half(), *self.decode_vae_cache)
-        
+
         self.frame_context_cache.extend(pixels.split(1, dim=1))
         if idx == 0:
             pixels = pixels[:, 3:, :, :, :]  # Skip first 3 frames of first block
@@ -992,7 +1025,8 @@ class GenerationSession:
         event.record()
         self.frame_callback(pixels, frame_ids, event)
 
-        self.current_start_frame += models.pipeline.num_frame_per_block
+        if not self.is_wan22 and self.num_frame_per_block is not None:
+            self.current_start_frame += models.pipeline.num_frame_per_block
         self.total_frames_sent += pixels.shape[1]
         self.block_idx += 1
         self.resume_latents = None
