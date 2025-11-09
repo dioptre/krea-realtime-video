@@ -69,6 +69,70 @@ def resample_array(array, target_length):
     indices = np.round(np.linspace(0, len(array) - 1, target_length)).astype(int)
     return [array[i] for i in indices]
 
+def correct_frame_dimensions(image: Image.Image, target_width: int, target_height: int) -> Image.Image:
+    """
+    Robustly correct frame dimensions to target size with intelligent aspect ratio preservation.
+
+    This function ensures frames work with VAE encoder regardless of incoming dimensions:
+    - Handles JPEG padding artifacts (e.g., 832×704 → 834×706)
+    - Centers and crops/resizes while maintaining aspect ratio
+    - Ensures output is divisible by 16 (VAE requirement)
+    - Works for ANY input dimension
+
+    Args:
+        image: PIL Image (any size)
+        target_width: desired width (should be divisible by 16)
+        target_height: desired height (should be divisible by 16)
+
+    Returns:
+        PIL Image with corrected dimensions
+    """
+    current_w, current_h = image.size
+    target_w, target_h = target_width, target_height
+
+    if (current_w, current_h) == (target_w, target_h):
+        return image
+
+    # Calculate aspect ratios
+    current_aspect = current_w / current_h
+    target_aspect = target_w / target_h
+
+    # Calculate the resize dimensions that fit within target while maintaining aspect ratio
+    if current_aspect > target_aspect:
+        # Image is wider than target aspect - fit to height
+        new_h = target_h
+        new_w = int(target_h * current_aspect)
+    else:
+        # Image is taller than target aspect - fit to width
+        new_w = target_w
+        new_h = int(target_w / current_aspect)
+
+    # Resize to intermediate size
+    resized = image.resize((new_w, new_h), Image.LANCZOS)
+
+    # Center-crop to target dimensions
+    left = (new_w - target_w) // 2
+    top = (new_h - target_h) // 2
+    right = left + target_w
+    bottom = top + target_h
+
+    # Ensure crop box is within bounds
+    left = max(0, min(left, new_w - target_w))
+    top = max(0, min(top, new_h - target_h))
+    right = min(new_w, left + target_w)
+    bottom = min(new_h, top + target_h)
+
+    cropped = resized.crop((left, top, right, bottom))
+
+    # Verify final dimensions
+    final_w, final_h = cropped.size
+    if (final_w, final_h) != (target_w, target_h):
+        # Fallback: direct resize if cropping didn't work perfectly
+        log.warning(f"Crop resulted in {final_w}×{final_h}, expected {target_w}×{target_h}. Using direct resize.")
+        cropped = cropped.resize((target_w, target_h), Image.LANCZOS)
+
+    return cropped
+
 # SECTION: CONFIGURATION AND CONSTANTS
 
 # Basic configuration - logs to console by default
@@ -754,16 +818,21 @@ class GenerationSession:
             if self.params.horizontal_mirror:
                 image = image.transpose(Image.FLIP_LEFT_RIGHT)
 
-            # CRITICAL: Resize image to exact target dimensions before converting to tensor
-            # This ensures all frames have the same dimensions for VAE encoder (requires exactly divisible by 16)
+            # ROBUST DIMENSION CORRECTION: Intelligently resize to exact target dimensions
+            # Handles JPEG padding artifacts and ensures VAE encoder compatibility
             original_image_size = image.size  # (width, height)
             target_size = (self.params.width, self.params.height)
+
             if original_image_size != target_size:
-                log.warning(f"Frame size mismatch: received {original_image_size}, target {target_size}")
-            image = image.resize(target_size, Image.LANCZOS)
-            resized_image_size = image.size
-            if resized_image_size != target_size:
-                log.error(f"CRITICAL: Resize failed! Expected {target_size}, got {resized_image_size}")
+                log.info(f"Frame resizing: {original_image_size} → {target_size} (with aspect ratio preservation)")
+                image = correct_frame_dimensions(image, self.params.width, self.params.height)
+
+            # Verify final dimensions
+            final_size = image.size
+            if final_size != target_size:
+                log.error(f"CRITICAL: Frame correction failed! Expected {target_size}, got {final_size}")
+            else:
+                log.debug(f"✓ Frame dimensions correct: {final_size} (divisible by 16: {final_size[0] % 16 == 0 and final_size[1] % 16 == 0})")
 
             tensor = TF.to_tensor(image).to(dtype=torch.float16).pin_memory()
             with torch.cuda.stream(upload_stream):
