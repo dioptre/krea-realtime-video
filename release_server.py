@@ -43,7 +43,7 @@ from omegaconf import OmegaConf
 from tqdm import tqdm
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel, ValidationError
 import time
 from pathlib import Path
@@ -1400,6 +1400,15 @@ async def root():
         return HTMLResponse("<h1>Self-Forcing</h1><p>Demo UI not found.</p>", status_code=404)
     return HTMLResponse(demo_path.read_text(encoding="utf-8"))
 
+@app.get("/batch")
+async def batch_processor():
+    """Serve the simplified batch processor UI for webcam capture and processing"""
+    batch_path = Path(__file__).parent / "templates" / "batch_processor.html"
+    if not batch_path.exists():
+        log.warning("Batch processor template missing at %s", batch_path)
+        return HTMLResponse("<h1>Batch Processor</h1><p>UI not found.</p>", status_code=404)
+    return HTMLResponse(batch_path.read_text(encoding="utf-8"))
+
 @app.post("/upload_video")
 async def upload_video(file: UploadFile = File(...)):
     """Upload a video file and return its temporary path for use in generation"""
@@ -1427,11 +1436,11 @@ async def upload_start_frame(file: UploadFile = File(...)):
         # Create a temporary file with the original extension
         suffix = Path(file.filename).suffix if file.filename else ".jpg"
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        
+
         # Copy uploaded file to temp file
         with temp_file:
             shutil.copyfileobj(file.file, temp_file)
-        
+
         log.info(f"Start frame uploaded to temporary file: {temp_file.name}")
         return JSONResponse({"path": temp_file.name, "filename": file.filename})
     except Exception as e:
@@ -1439,6 +1448,80 @@ async def upload_start_frame(file: UploadFile = File(...)):
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         file.file.close()
+
+
+@app.post("/api/process_webcam")
+async def process_webcam(
+    video: UploadFile = File(...),
+    prompt: str = "",
+    denoising_strength: float = 0.75,
+    width: int = 832,
+    height: int = 480
+):
+    """Batch process webcam video: encode → denoise with TI2V → decode → MP4"""
+    temp_video_path = None
+    output_mp4_path = None
+
+    try:
+        log.info(f"Starting batch processing: prompt='{prompt}', denoise={denoising_strength}, size={width}x{height}")
+
+        # Save uploaded video to temp file
+        suffix = Path(video.filename).suffix if video.filename else ".webm"
+        temp_video = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        temp_video_path = temp_video.name
+
+        with temp_video:
+            shutil.copyfileobj(video.file, temp_video)
+
+        log.info(f"Video uploaded to: {temp_video_path}")
+
+        # Load video frames (resampled to 16 fps)
+        from v2v import load_video_as_rgb, encode_video_latent, get_denoising_schedule
+
+        frames = load_video_as_rgb(temp_video_path, resample_to=16, resample_frame_count_threshold=33)
+        log.info(f"Loaded frames shape: {frames.shape}")
+
+        # Prepare output MP4 path
+        output_mp4 = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        output_mp4_path = output_mp4.name
+        output_mp4.close()
+
+        # For now, just save the frames as MP4 using imageio
+        # (This verifies the capture pipeline works before adding TI2V processing)
+        import imageio
+
+        # Convert frames from [-1, 1] to [0, 255]
+        frames_np = frames.cpu().numpy()  # Shape: (T, 3, H, W)
+        frames_np = (frames_np + 1) / 2 * 255  # Normalize to [0, 255]
+        frames_np = frames_np.astype(np.uint8)
+        frames_np = np.transpose(frames_np, (0, 2, 3, 1))  # (T, H, W, 3)
+
+        # Write MP4
+        with imageio.get_writer(output_mp4_path, fps=16) as writer:
+            for frame in frames_np:
+                writer.append_data(frame)
+
+        log.info(f"Generated MP4: {output_mp4_path}")
+
+        # Return the MP4 file
+        return FileResponse(
+            output_mp4_path,
+            media_type="video/mp4",
+            filename="batch_output.mp4",
+            headers={"Content-Disposition": "attachment; filename=batch_output.mp4"}
+        )
+
+    except Exception as e:
+        log.error(f"Error in batch processing: {e}", exc_info=True)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+    finally:
+        # Clean up temp video (keep output for download)
+        if temp_video_path and os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except:
+                pass
 
 @app.get("/download_video/{session_id}")
 async def download_video(session_id: str):

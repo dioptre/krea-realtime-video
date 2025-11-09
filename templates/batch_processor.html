@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wan2.2 Batch Processor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+            --bg: #0b1120;
+            --surface: rgba(15, 23, 42, 0.82);
+            --border: rgba(148, 163, 184, 0.16);
+            --text-primary: #e2e8f0;
+            --text-muted: rgba(148, 163, 184, 0.78);
+            --accent: #38bdf8;
+            --accent-strong: #2563eb;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: clamp(24px, 5vw, 64px);
+            font-family: inherit;
+        }
+
+        .page {
+            width: min(600px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0;
+            background: linear-gradient(135deg, var(--accent), #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .video-preview-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        video, canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        button.primary {
+            background: linear-gradient(135deg, var(--accent-strong), var(--accent));
+            color: white;
+        }
+
+        button.primary:hover:not(:disabled) {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+
+        button.secondary {
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--accent);
+            border: 1px solid var(--border);
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background: rgba(148, 163, 184, 0.15);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        input[type="text"],
+        input[type="range"],
+        input[type="number"],
+        select {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            padding: 10px 12px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus,
+        input[type="range"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            background: rgba(56, 189, 248, 0.05);
+        }
+
+        .slider-value {
+            display: inline-block;
+            background: rgba(56, 189, 248, 0.2);
+            color: var(--accent);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .status-message {
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            border-left: 4px solid transparent;
+        }
+
+        .status-message.info {
+            background: rgba(59, 130, 246, 0.1);
+            border-left-color: #3b82f6;
+            color: #60a5fa;
+        }
+
+        .status-message.success {
+            background: rgba(34, 197, 94, 0.1);
+            border-left-color: #22c55e;
+            color: #86efac;
+        }
+
+        .status-message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border-left-color: #ef4444;
+            color: #fca5a5;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(148, 163, 184, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-strong), var(--accent));
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .download-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+            padding: 8px 12px;
+            background: rgba(56, 189, 248, 0.1);
+            border-radius: 6px;
+            border: 1px solid var(--accent);
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .download-link:hover {
+            background: rgba(56, 189, 248, 0.15);
+        }
+
+        .timer {
+            font-variant-numeric: tabular-nums;
+            font-family: 'Courier New', monospace;
+            color: var(--accent);
+            font-weight: 600;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div>
+            <h1>Wan2.2 Batch Processor</h1>
+            <p style="color: var(--text-muted); margin: 8px 0 0 0; font-size: 13px;">Capture webcam → Process with TI2V → Download MP4</p>
+        </div>
+
+        <!-- Webcam Capture Section -->
+        <div class="section">
+            <label style="text-transform: uppercase; font-size: 12px;">Webcam Preview</label>
+            <div class="video-preview-container">
+                <video id="webcamVideo" playsinline></video>
+                <canvas id="captureCanvas" class="hidden"></canvas>
+            </div>
+            <div class="button-group">
+                <button class="primary" id="startCameraBtn" onclick="startCamera()">Start Camera</button>
+                <button class="secondary" id="stopCameraBtn" onclick="stopCamera()" disabled>Stop Camera</button>
+                <button class="primary" id="captureBtn" onclick="captureVideo()" disabled style="flex: 2;">Capture 5 Seconds</button>
+            </div>
+            <div id="cameraStatus" style="font-size: 12px; color: var(--text-muted);"></div>
+        </div>
+
+        <!-- Processing Settings Section -->
+        <div class="section">
+            <div class="input-group">
+                <label>Text Prompt</label>
+                <input type="text" id="promptInput" placeholder="e.g., cyberpunk style, neon lights" value="artistic transformation">
+            </div>
+
+            <div class="input-group">
+                <label>Denoising Strength <span class="slider-value" id="denoisingValue">0.75</span></label>
+                <input type="range" id="denoisingStrength" min="0.1" max="1.0" step="0.05" value="0.75"
+                    oninput="updateDenoisingValue(this.value)">
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    Lower = subtle transformation, Higher = dramatic change
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>Output Resolution</label>
+                <select id="resolutionSelect">
+                    <option value="832x480">832×480 (16:9, Optimized)</option>
+                    <option value="640x480">640×480 (4:3, Faster)</option>
+                    <option value="512x512">512×512 (1:1, Fastest)</option>
+                    <option value="480x832">480×832 (9:16, Portrait)</option>
+                </select>
+            </div>
+
+            <button class="primary" id="processBtn" onclick="processVideo()" disabled style="width: 100%;">
+                Process Video with TI2V
+            </button>
+        </div>
+
+        <!-- Status Section -->
+        <div id="statusSection" class="section hidden">
+            <div id="statusMessage" class="status-message info"></div>
+            <div id="progressContainer" class="hidden">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div style="margin-top: 8px; display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted);">
+                    <span id="progressText">Processing...</span>
+                    <span class="timer" id="elapsedTime">0:00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Section -->
+        <div id="downloadSection" class="section hidden">
+            <div class="status-message success">✓ Processing complete! Your video is ready.</div>
+            <a id="downloadLink" class="download-link" download>↓ Download Output Video (MP4)</a>
+            <button class="secondary" onclick="resetUI()" style="width: 100%; margin-top: 12px;">Process Another Video</button>
+        </div>
+    </div>
+
+    <script>
+        let mediaStream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let startTime = null;
+
+        async function startCamera() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                document.getElementById('webcamVideo').srcObject = mediaStream;
+                document.getElementById('startCameraBtn').disabled = true;
+                document.getElementById('stopCameraBtn').disabled = false;
+                document.getElementById('captureBtn').disabled = false;
+                document.getElementById('cameraStatus').textContent = '✓ Camera active';
+                document.getElementById('cameraStatus').style.color = '#86efac';
+            } catch (err) {
+                document.getElementById('cameraStatus').textContent = 'Camera access denied';
+                document.getElementById('cameraStatus').style.color = '#fca5a5';
+            }
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            document.getElementById('webcamVideo').srcObject = null;
+            document.getElementById('startCameraBtn').disabled = false;
+            document.getElementById('stopCameraBtn').disabled = true;
+            document.getElementById('captureBtn').disabled = true;
+            document.getElementById('cameraStatus').textContent = '';
+        }
+
+        async function captureVideo() {
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'video/webm' });
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                window.capturedVideoBlob = blob;
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('cameraStatus').textContent = `✓ Video captured (${(blob.size / 1024 / 1024).toFixed(1)}MB)`;
+                document.getElementById('cameraStatus').style.color = '#86efac';
+            };
+
+            mediaRecorder.start();
+            document.getElementById('captureBtn').disabled = true;
+            document.getElementById('cameraStatus').textContent = 'Recording... 5 seconds';
+            document.getElementById('cameraStatus').style.color = '#60a5fa';
+
+            setTimeout(() => {
+                if (mediaRecorder && mediaRecorder.state === 'recording') {
+                    mediaRecorder.stop();
+                    document.getElementById('captureBtn').disabled = false;
+                }
+            }, 5000);
+        }
+
+        function updateDenoisingValue(val) {
+            document.getElementById('denoisingValue').textContent = parseFloat(val).toFixed(2);
+        }
+
+        async function processVideo() {
+            if (!window.capturedVideoBlob) {
+                showStatus('error', 'No video captured');
+                return;
+            }
+
+            const prompt = document.getElementById('promptInput').value;
+            const denoising = parseFloat(document.getElementById('denoisingStrength').value);
+            const resolution = document.getElementById('resolutionSelect').value;
+            const [width, height] = resolution.split('x').map(Number);
+
+            document.getElementById('statusSection').classList.remove('hidden');
+            document.getElementById('downloadSection').classList.add('hidden');
+            document.getElementById('progressContainer').classList.remove('hidden');
+            document.getElementById('processBtn').disabled = true;
+            document.getElementById('captureBtn').disabled = true;
+
+            startTime = Date.now();
+            updateTimer();
+
+            showStatus('info', `Processing with prompt: "${prompt}", denoising: ${denoising.toFixed(2)}`);
+
+            const formData = new FormData();
+            formData.append('video', window.capturedVideoBlob, 'captured.webm');
+            formData.append('prompt', prompt);
+            formData.append('denoising_strength', denoising);
+            formData.append('width', width);
+            formData.append('height', height);
+
+            try {
+                const response = await fetch('/api/process_webcam', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    showStatus('error', `Processing failed: ${error}`);
+                    document.getElementById('processBtn').disabled = false;
+                    document.getElementById('captureBtn').disabled = false;
+                    return;
+                }
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+
+                document.getElementById('downloadLink').href = url;
+                document.getElementById('downloadLink').download = `wan22_output_${Date.now()}.mp4`;
+
+                showStatus('success', '✓ Processing complete!');
+                document.getElementById('progressContainer').classList.add('hidden');
+                document.getElementById('statusSection').classList.add('hidden');
+                document.getElementById('downloadSection').classList.remove('hidden');
+
+            } catch (err) {
+                showStatus('error', `Error: ${err.message}`);
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('captureBtn').disabled = false;
+            }
+        }
+
+        function showStatus(type, message) {
+            const el = document.getElementById('statusMessage');
+            el.className = `status-message ${type}`;
+            el.textContent = message;
+        }
+
+        function updateTimer() {
+            if (!startTime) return;
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+            document.getElementById('elapsedTime').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+            if (document.getElementById('statusSection').classList.contains('hidden') === false) {
+                setTimeout(updateTimer, 500);
+            }
+        }
+
+        function resetUI() {
+            window.capturedVideoBlob = null;
+            document.getElementById('statusSection').classList.add('hidden');
+            document.getElementById('downloadSection').classList.add('hidden');
+            document.getElementById('processBtn').disabled = true;
+            document.getElementById('captureBtn').disabled = !mediaStream;
+            startTime = null;
+        }
+    </script>
+</body>
+</html>
