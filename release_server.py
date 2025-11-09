@@ -1158,12 +1158,13 @@ class GenerationSession:
                     )
 
             self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
-        else:
+        elif self.is_wan22 and self.params.webcam_mode:
             # For Wan2.2 webcam mode, use the processed latents directly
             # noisy_input is the VAE-encoded latents from process_webcam_frames()
             # For real-time webcam, we don't need full inference - just pass through
             log.debug(f"Wan2.2 webcam mode: using latents directly (shape={noisy_input.shape})")
             denoised_pred = noisy_input
+        # else: For Wan2.2 text-to-video, denoised_pred is already set from inference()
 
         self.last_pred = denoised_pred
         decode_start = time.time()
