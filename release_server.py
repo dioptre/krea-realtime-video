@@ -1499,34 +1499,27 @@ async def process_webcam(
         frames_np = frames_np.astype(np.uint8)
         frames_np = np.transpose(frames_np, (0, 2, 3, 1))  # (T, H, W, 3)
 
-        # Apply color transformation based on prompt
-        prompt_lower = prompt.lower()
-        log.info(f"DEBUG: prompt_lower='{prompt_lower}'")
-        log.info(f"DEBUG: 'underwater' in prompt_lower: {'underwater' in prompt_lower}")
+        # TEST: ALWAYS apply transformation (testing if the transformation logic works)
+        log.info(f"🔍 Applying underwater transformation for testing (prompt was: '{prompt}')")
 
-        if "underwater" in prompt_lower or "ocean" in prompt_lower or "water" in prompt_lower:
-            log.info("✓ Prompt contains water keyword - applying underwater transformation...")
+        # Log frame statistics before transformation
+        log.info(f"  Before: R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
 
-            # Log frame statistics before transformation
-            log.info(f"  Before: R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
+        # Enhance blues and cyans for underwater effect
+        frames_np = frames_np.astype(np.float32)
+        log.info(f"  Converted to float32: dtype={frames_np.dtype}, min={frames_np.min():.2f}, max={frames_np.max():.2f}")
 
-            # Enhance blues and cyans for underwater effect
-            frames_np = frames_np.astype(np.float32)
-            log.info(f"  Converted to float32: dtype={frames_np.dtype}, min={frames_np.min():.2f}, max={frames_np.max():.2f}")
+        # Reduce red/green, enhance blue - STRONGER effect for testing
+        log.info(f"  Applying: Red *= 0.5, Green *= 0.5, Blue *= 1.8 (STRONGER)")
+        frames_np[:, :, :, 0] = frames_np[:, :, :, 0] * 0.5  # Red: reduce more
+        frames_np[:, :, :, 1] = frames_np[:, :, :, 1] * 0.5  # Green: reduce more
+        frames_np[:, :, :, 2] = np.clip(frames_np[:, :, :, 2] * 1.8, 0, 255)  # Blue: enhance more
 
-            # Reduce red/green, enhance blue
-            log.info(f"  Applying: Red *= 0.6, Green *= 0.7, Blue *= 1.4")
-            frames_np[:, :, :, 0] = frames_np[:, :, :, 0] * 0.6  # Red: reduce
-            frames_np[:, :, :, 1] = frames_np[:, :, :, 1] * 0.7  # Green: reduce slightly
-            frames_np[:, :, :, 2] = np.clip(frames_np[:, :, :, 2] * 1.4, 0, 255)  # Blue: enhance
+        log.info(f"  After multiplication: R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
 
-            log.info(f"  After multiplication: R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
-
-            frames_np = np.clip(frames_np, 0, 255).astype(np.uint8)
-            log.info(f"  After clipping to uint8: dtype={frames_np.dtype}, R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
-            log.info("✓ Underwater transformation applied successfully")
-        else:
-            log.info(f"❌ Prompt does NOT contain water keyword - no transformation")
+        frames_np = np.clip(frames_np, 0, 255).astype(np.uint8)
+        log.info(f"  After clipping to uint8: dtype={frames_np.dtype}, R_mean={frames_np[:,:,:,0].mean():.1f}, G_mean={frames_np[:,:,:,1].mean():.1f}, B_mean={frames_np[:,:,:,2].mean():.1f}")
+        log.info("✓ Transformation applied successfully")
 
         # Write MP4
         log.info(f"Writing output MP4 with {len(frames_np)} frames...")
