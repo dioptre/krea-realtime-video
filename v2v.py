@@ -157,8 +157,13 @@ def encode_video_latent(vae, encode_vae_cache, resample_to=16, max_frames=81, vi
     original_h, original_w = frames.shape[2:]
     if (h, w) != (original_h, original_w):
         print(f"Resizing frames from ({original_w}, {original_h}) to ({w}, {h}) for VAE alignment")
+        # FORCE resize if dimensions don't match - don't let VAE apply its own padding
+        frames = torch.nn.functional.interpolate(frames.cuda(), size=(h, w), mode='bicubic', align_corners=False)
+    else:
+        frames = frames.cuda()
 
-    frames = torch.nn.functional.interpolate(frames.cuda(), size=(h, w), mode='bicubic').transpose(0, 1).to(dtype)
+    # Apply transpose and dtype after ensuring correct dimensions
+    frames = frames.transpose(0, 1).to(dtype)
     
     init_video_latents, encode_vae_cache = vae(frames.unsqueeze(0), encode_vae_cache, stream=stream)
     del frames

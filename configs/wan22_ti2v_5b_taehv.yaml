@@ -1,0 +1,10 @@
+model_name: Wan2.2-TI2V-5B-TAEHV
+warp_denoising_step: true
+denoising_step_list:
+  - 1000
+  - 750
+  - 500
+  - 250
+is_bidirectional: true  # Use bidirectional Wan22FewstepInferencePipeline, not causal
+checkpoint_path: Wan2.2-TI2V-5B-Turbo  # Load from turbo repo cloned in /models
+use_taehv: true  # Enable Temporal Attention Head Evolution
