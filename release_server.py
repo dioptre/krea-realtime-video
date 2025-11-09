@@ -146,10 +146,11 @@ def load_text_encoder():
     text_encoder.eval()
     text_encoder.to(dtype=torch.bfloat16)
     text_encoder.requires_grad_(False)
-    
+    text_encoder.to(torch.cuda.current_device())
+
     t_finish = time.time()
     log.debug(f"Text encoder load completed in: {t_finish - t_import:.2f}s, total: {t_finish - t_start:.2f}s")
-    
+
     return text_encoder
 
 

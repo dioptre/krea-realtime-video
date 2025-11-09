@@ -1,0 +1,11 @@
+#!/bin/bash
+mkdir -p /root/.ssh
+cat >>/root/.ssh/authorized_keys <<"EOF"
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCv6LZDoeQWDQ2OUsu3gahB1+yPz31m+TNwaDwWuv7Ifyvm41fcTgOyeKYQdYw243jQemI8PtsqfvhT49rtjr3on67z+a/7AxdjIwHbDxS30wV0luJ7UByf2zqP2v/W/ZQvDbsPC06W+ICEh7NwsZmFURfk3aKyxd86Rqq/o6r5CLe/xKbpgTIzDOJ/dcdfOaLRKjJ63u2RWeYQDF3qBzpo+2PW4Sz6xMtee1Lav0yH2V3SOjz5b2zUJzKp8Y5p8lUo9Jgcwultp+qrehBs/8kBoWYkE15LU3PzUmKtCIodUjG84pEb4FgOCp9m/FLpZ5NHxcOruImS/605amFkQTEtlgN+exbbR+LdbrifrRTWtuIxyWW/VONi9oTi4VWcGb6+zzDP77KglNKkHCF/LylBAlcDVl58k7GVyHKaJKCw/4NqSmsW3Dwy9Uo/eZ2lsB7VirAYvrG5DyrXPCWgkYhRpf79OaxoeByGifmWv8EGrko5gHIQmMrCJierksdn6jU= andrewgrosser@Andrews-MacBook-Pro.local
+
+
+
+
+
+
+EOF
