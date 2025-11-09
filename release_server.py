@@ -1119,10 +1119,39 @@ class GenerationSession:
 
             self.all_latents[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block] = denoised_pred
         else:
-            # For Wan2.2 webcam mode, use the latents directly as denoised_pred
-            # (webcam_mode only path - non-webcam Wan2.2 was already rejected above)
-            log.debug("Wan2.2 using latents directly for decode (webcam mode)")
-            denoised_pred = noisy_input
+            # For Wan2.2 webcam mode, run inference through the Turbo pipeline
+            # noisy_input is the VAE-encoded latents from process_webcam_frames()
+            # Shape: (1, num_frames, 48, h//16, w//16)
+            log.debug(f"Wan2.2 webcam inference: noisy_input shape = {noisy_input.shape}")
+
+            # Get current prompt embeddings for webcam frame
+            text_prompts = [self.params.prompt] if self.params.prompt else [""]
+
+            # Call the Wan2.2 inference pipeline
+            try:
+                # Use the turbo pipeline to run inference
+                output = models.transformer.inference(
+                    noise=noisy_input,  # VAE-encoded latents from webcam frames
+                    text_prompts=text_prompts,
+                    wan22_image_latent=None  # No separate image latent needed for webcam frames
+                )[0]
+
+                log.debug(f"Wan2.2 inference output shape: {output.shape}")
+
+                # Handle different output shapes from Wan2.2
+                if output.ndim == 4:
+                    # Shape: (batch*frames, 3, h, w) - take just the frame tensor
+                    denoised_pred = output.unsqueeze(1)  # Add frames dimension
+                elif output.ndim == 5:
+                    # Shape: (batch, frames, 3, h, w) - already correct
+                    denoised_pred = output
+                else:
+                    log.error(f"Unexpected output shape from Wan2.2: {output.shape}")
+                    return None
+
+            except Exception as e:
+                log.error(f"Wan2.2 inference failed: {e}", exc_info=True)
+                return None
 
         self.last_pred = denoised_pred
         decode_start = time.time()
