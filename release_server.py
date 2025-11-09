@@ -1080,10 +1080,32 @@ class GenerationSession:
             if not self.is_wan22 and self.num_frame_per_block is not None:
                 noisy_input = self.noise[:, self.current_start_frame:self.current_start_frame + models.pipeline.num_frame_per_block]
             elif self.is_wan22:
-                # For Wan2.2, we need to handle text-to-video inference
-                # Skip for now - Wan2.2 should use webcam_mode for real-time generation
-                log.warning("Wan2.2 text-to-video mode not fully supported yet, skipping generation")
-                return None
+                # For Wan2.2, generate all frames at once on first block
+                if idx == 0:
+                    log.info("Wan2.2 text-to-video: generating all frames...")
+                    # Get full noise tensor for all frames
+                    noise = self.noise  # Shape: (1, num_frames, channels, h, w)
+                    text_prompts = [self.params.prompt]
+
+                    # Call Wan2.2 inference pipeline
+                    try:
+                        output = models.transformer.inference(
+                            noise=noise,
+                            text_prompts=text_prompts,
+                            wan22_image_latent=None
+                        )[0]
+                        log.info(f"Wan2.2 output shape: {output.shape}")
+
+                        # Store the full output for streaming
+                        self.all_latents = output
+                        denoised_pred = output
+                    except Exception as e:
+                        log.error(f"Wan2.2 inference failed: {e}", exc_info=True)
+                        return None
+                else:
+                    # For subsequent blocks, return None to stop generation
+                    # (all frames were already generated on first block)
+                    return None
             else:
                 # Shouldn't reach here
                 return None
