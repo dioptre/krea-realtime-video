@@ -77,6 +77,7 @@ def correct_frame_dimensions(image: Image.Image, target_width: int, target_heigh
     - Handles JPEG padding artifacts (e.g., 832×704 → 834×706)
     - Centers and crops/resizes while maintaining aspect ratio
     - Ensures output is divisible by 16 (VAE requirement)
+    - Accounts for VAE encoder internal padding (3x3x3 kernel needs headroom)
     - Works for ANY input dimension
 
     Args:
@@ -130,6 +131,13 @@ def correct_frame_dimensions(image: Image.Image, target_width: int, target_heigh
         # Fallback: direct resize if cropping didn't work perfectly
         log.warning(f"Crop resulted in {final_w}×{final_h}, expected {target_w}×{target_h}. Using direct resize.")
         cropped = cropped.resize((target_w, target_h), Image.LANCZOS)
+
+    # Extra safeguard: ensure dimensions are at least 80px min to account for VAE padding
+    # VAE applies internal conv padding that can cause 834×706 errors even if input is 832×704
+    final_w, final_h = cropped.size
+    if final_w < 80 or final_h < 80:
+        log.error(f"Frame too small after correction: {final_w}×{final_h}. Resizing to minimum safe size.")
+        cropped = cropped.resize((max(80, final_w), max(80, final_h)), Image.LANCZOS)
 
     return cropped
 

@@ -536,12 +536,12 @@
             <div class="param-grid">
                 <div class="field">
                     <label for="width">Width (pixels)</label>
-                    <input id="width" type="number" min="512" max="2048" step="8" value="640">
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Must be divisible by 8. Dynamic frame_seq_length</div>
+                    <input id="width" type="number" min="384" max="2048" step="8" value="512">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Must be divisible by 8. Smaller dims prevent VAE padding issues</div>
                 </div>
                 <div class="field">
                     <label for="height">Height (pixels)</label>
-                    <input id="height" type="number" min="512" max="2048" step="8" value="512">
+                    <input id="height" type="number" min="384" max="2048" step="8" value="480">
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
                         <button id="flipOrientationBtn" type="button" style="padding: 4px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Flip Orientation</button>
                     </div>
