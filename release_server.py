@@ -551,15 +551,20 @@ class GenerationSession:
         if len(frame_list) < num_frames_to_encode:
             return None
 
-        # IMPORTANT: Only use the most recent frames to prevent lag buildup
-        # If we have more frames than needed, drop the oldest ones (if enabled)
-        if self.params.drop_frames:
-            max_frames = int(num_frames_to_encode * self.params.max_queue_multiplier)
-            if len(frame_list) > max_frames:
-                # Keep only the most recent frames
-                dropped_count = len(frame_list) - max_frames
-                log.info(f"Dropping {dropped_count} old frames to prevent lag (queue size was {len(frame_list)}, max={max_frames})")
-                frame_list = frame_list[-max_frames:]
+        # ALWAYS use only the most recent frames to prevent lag buildup
+        max_frames = int(num_frames_to_encode * self.params.max_queue_multiplier) if self.params.drop_frames else len(frame_list)
+
+        if len(frame_list) > max_frames:
+            # Keep only the most recent frames
+            dropped_count = len(frame_list) - max_frames
+            log.info(f"Dropping {dropped_count} old frames to prevent lag (queue size was {len(frame_list)}, max={max_frames})")
+            frame_list = frame_list[-max_frames:]
+
+        # CRITICAL: Always use the MOST RECENT frames, not oldest!
+        # If we have more frames than needed, use the latest ones
+        if len(frame_list) > num_frames_to_encode:
+            log.debug(f"Using {num_frames_to_encode} most recent frames from {len(frame_list)} available")
+            frame_list = frame_list[-num_frames_to_encode:]
 
         # Resample to target number of frames for temporal spacing
         frames_to_encode = resample_array(frame_list, num_frames_to_encode)
@@ -650,11 +655,11 @@ class GenerationSession:
             block.self_attn.num_frame_per_block = models.pipeline.num_frame_per_block
 
         current_kv_cache_num_frames = self.params.kv_cache_num_frames
-        
+
         model_input_start_frame = min(self.current_start_frame, current_kv_cache_num_frames)
-                
+
         clean_context_frames = self.get_clean_context_frames(models)
-        
+
         models.pipeline._initialize_kv_cache(
             batch_size=clean_context_frames.shape[0], dtype=clean_context_frames.dtype, device=clean_context_frames.device
         )
