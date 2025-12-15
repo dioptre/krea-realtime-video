@@ -900,15 +900,45 @@ async def upload_start_frame(file: UploadFile = File(...)):
         # Create a temporary file with the original extension
         suffix = Path(file.filename).suffix if file.filename else ".jpg"
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        
+
         # Copy uploaded file to temp file
         with temp_file:
             shutil.copyfileobj(file.file, temp_file)
-        
+
         log.info(f"Start frame uploaded to temporary file: {temp_file.name}")
         return JSONResponse({"path": temp_file.name, "filename": file.filename})
     except Exception as e:
         log.error(f"Error uploading start frame: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        file.file.close()
+
+@app.post("/upload_prompts")
+async def upload_prompts(file: UploadFile = File(...)):
+    """Upload a JSON file with multiple prompts for cycling"""
+    try:
+        import json
+        content = await file.read()
+        prompts_data = json.loads(content.decode('utf-8'))
+
+        if "prompts" not in prompts_data or not isinstance(prompts_data["prompts"], list):
+            return JSONResponse({"error": "JSON must have 'prompts' array"}, status_code=400)
+
+        prompts = prompts_data["prompts"]
+        if len(prompts) == 0:
+            return JSONResponse({"error": "Prompts array cannot be empty"}, status_code=400)
+
+        log.info(f"Uploaded {len(prompts)} prompts for cycling")
+        return JSONResponse({
+            "success": True,
+            "prompts": prompts,
+            "count": len(prompts)
+        })
+    except json.JSONDecodeError as e:
+        log.error(f"Invalid JSON: {e}")
+        return JSONResponse({"error": f"Invalid JSON: {str(e)}"}, status_code=400)
+    except Exception as e:
+        log.error(f"Error uploading prompts: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
     finally:
         file.file.close()
@@ -1141,6 +1171,15 @@ async def ws_session(websocket: WebSocket, id: str, config: OmegaConf, models: M
             if not isinstance(frame, dict):
                 logging.warning(f"Received non-dict frame data: {frame}")
                 continue
+
+            # Handle heartbeat ping
+            if frame.get("type") == "ping":
+                try:
+                    await websocket.send_json({"type": "pong"})
+                except Exception as e:
+                    logging.debug(f"Failed to send pong: {e}")
+                continue
+
             if frame.get("action") == "reset":
                 session.dispose()
                 session = new_session()

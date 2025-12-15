@@ -452,6 +452,22 @@
                 <textarea id="prompt" placeholder="Describe the short video you want to synthesize..."></textarea>
             </div>
 
+            <div class="prompt-cycling-block" style="margin-top: 12px; padding: 12px; background: rgba(30, 41, 59, 0.5); border-radius: 8px; border: 1px solid var(--border);">
+                <label style="font-size: 13px; font-weight: 600; margin-bottom: 8px; display: block;">Prompt Cycling (Optional)</label>
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                    <input type="file" id="promptsFileInput" accept=".json" style="display: none;">
+                    <button id="uploadPromptsBtn" class="secondary" type="button" style="font-size: 12px; padding: 6px 12px;">Upload Prompts JSON</button>
+                    <span id="promptsStatus" style="font-size: 12px; color: var(--text-muted);"></span>
+                </div>
+                <div id="cyclingControls" style="display: none; margin-top: 8px; gap: 8px; flex-wrap: wrap;">
+                    <label style="font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                        <input type="checkbox" id="enableCycling">
+                        <span>Enable Auto-Cycling (120s)</span>
+                    </label>
+                    <span id="currentPromptInfo" style="font-size: 11px; color: var(--accent); margin-left: 12px;"></span>
+                </div>
+            </div>
+
             <div class="action-row">
                 <div class="slider-block">
                     <label for="interpSteps">Blend Steps</label>
@@ -547,8 +563,9 @@
                 <div class="field">
                     <label for="height">Height (pixels)</label>
                     <input id="height" type="number" min="480" max="832" step="8" value="480">
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; gap: 8px;">
                         <button id="flipOrientationBtn" type="button" style="padding: 4px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;">🔄 Flip to Portrait</button>
+                        <button id="horizontalFlipBtn" type="button" style="padding: 4px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer;">↔️ Mirror</button>
                     </div>
                 </div>
                 <div class="field">
@@ -790,6 +807,22 @@
                 videoCanvas.width = Number(widthInput.value);
                 videoCanvas.height = Number(heightInput.value);
             });
+
+            // Horizontal flip button
+            let isHorizontallyFlipped = false;
+            const horizontalFlipBtn = document.getElementById("horizontalFlipBtn");
+            horizontalFlipBtn.addEventListener("click", () => {
+                isHorizontallyFlipped = !isHorizontallyFlipped;
+                if (isHorizontallyFlipped) {
+                    horizontalFlipBtn.style.background = "#22c55e";
+                    horizontalFlipBtn.textContent = "↔️ Mirrored";
+                    log("✅ Horizontal mirror enabled");
+                } else {
+                    horizontalFlipBtn.style.background = "var(--accent)";
+                    horizontalFlipBtn.textContent = "↔️ Mirror";
+                    log("❌ Horizontal mirror disabled");
+                }
+            });
             const numBlocksInput = document.getElementById("numBlocks");
             const numBlocksValue = document.getElementById("numBlocksValue");
             const numBlocksStatusValue = document.getElementById("numBlocksStatusValue");
@@ -839,10 +872,35 @@
             let webcamStream = null;
             let webcamCaptureInterval = null;
             let availableCameras = [];
+
+            // Prompt cycling elements and state
+            const uploadPromptsBtn = document.getElementById("uploadPromptsBtn");
+            const promptsFileInput = document.getElementById("promptsFileInput");
+            const promptsStatus = document.getElementById("promptsStatus");
+            const cyclingControls = document.getElementById("cyclingControls");
+            const enableCycling = document.getElementById("enableCycling");
+            const currentPromptInfo = document.getElementById("currentPromptInfo");
+
+            let promptsList = [];
+            let currentPromptIndex = 0;
+            let promptCyclingInterval = null;
             let selectedCameraId = null;
             let currentMode = 'text2video';
             let serverBgRemovalEnabled = false;
             let horizontalMirrorEnabled = true;
+
+            // Websocket reconnection state
+            let reconnectAttempts = 0;
+            let maxReconnectAttempts = 5;
+            let reconnectDelay = 2000; // Start with 2 seconds
+            let reconnectTimeout = null;
+            let shouldReconnect = false;
+
+            // Keepalive heartbeat
+            let heartbeatInterval = null;
+            let heartbeatTimeout = null;
+            const HEARTBEAT_INTERVAL = 30000; // Send ping every 30 seconds
+            const HEARTBEAT_TIMEOUT = 10000; // Expect pong within 10 seconds
             let viewRotation = 0;  // Track view rotation in degrees
             let contentRotation = 0;  // Track content rotation in degrees
 
@@ -1234,6 +1292,98 @@
                 log("Webcam stopped");
             }
 
+            // Prompt cycling functions
+            function cycleToNextPrompt() {
+                if (!promptsList || promptsList.length === 0) return;
+
+                currentPromptIndex = (currentPromptIndex + 1) % promptsList.length;
+                const newPrompt = promptsList[currentPromptIndex];
+                promptInput.value = newPrompt;
+
+                currentPromptInfo.textContent = `Prompt ${currentPromptIndex + 1}/${promptsList.length}`;
+                log(`🔄 Cycling to prompt ${currentPromptIndex + 1}: "${newPrompt.substring(0, 50)}..."`);
+
+                // Apply the new prompt
+                sendPromptUpdate();
+            }
+
+            function startPromptCycling() {
+                if (promptCyclingInterval) {
+                    clearInterval(promptCyclingInterval);
+                }
+
+                log("✅ Prompt cycling enabled (120s interval)");
+                promptCyclingInterval = setInterval(cycleToNextPrompt, 120000); // 120 seconds
+            }
+
+            function stopPromptCycling() {
+                if (promptCyclingInterval) {
+                    clearInterval(promptCyclingInterval);
+                    promptCyclingInterval = null;
+                    log("⏸ Prompt cycling stopped");
+                }
+            }
+
+            // Upload prompts button handler
+            uploadPromptsBtn.addEventListener("click", () => {
+                promptsFileInput.click();
+            });
+
+            // File upload handler
+            promptsFileInput.addEventListener("change", async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const formData = new FormData();
+                formData.append("file", file);
+
+                try {
+                    promptsStatus.textContent = "Uploading...";
+                    const response = await fetch("/upload_prompts", {
+                        method: "POST",
+                        body: formData
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success) {
+                        promptsList = result.prompts;
+                        currentPromptIndex = 0;
+                        promptsStatus.textContent = `✅ ${result.count} prompts loaded`;
+                        cyclingControls.style.display = "flex";
+
+                        // Set first prompt
+                        if (promptsList.length > 0) {
+                            promptInput.value = promptsList[0];
+                            currentPromptInfo.textContent = `Prompt 1/${promptsList.length}`;
+                        }
+
+                        // Restart cycling if it was already enabled
+                        if (enableCycling.checked) {
+                            log(`🔄 Restarting prompt cycling with new prompts`);
+                            startPromptCycling();
+                        }
+
+                        log(`📝 Loaded ${result.count} prompts for cycling`);
+                    } else {
+                        promptsStatus.textContent = `❌ Error: ${result.error}`;
+                        log(`Error: ${result.error}`);
+                    }
+                } catch (error) {
+                    promptsStatus.textContent = `❌ Upload failed`;
+                    log(`Error uploading prompts: ${error.message}`);
+                }
+            });
+
+            // Enable/disable cycling checkbox
+            enableCycling.addEventListener("change", (e) => {
+                if (e.target.checked) {
+                    startPromptCycling();
+                } else {
+                    stopPromptCycling();
+                }
+            });
+
             function captureWebcamFrame() {
                 if (!webcamStream || !websocket || websocket.readyState !== WebSocket.OPEN) {
                     return;
@@ -1434,7 +1584,17 @@
             const drawNextFrame = () => {
                 if (frameBuffer.length === 0) return;
                 const bitmap = frameBuffer.shift();
-                ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+                // Apply horizontal flip if enabled
+                if (isHorizontallyFlipped) {
+                    ctx.save();
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(bitmap, -canvas.width, 0, canvas.width, canvas.height);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                }
+
                 if (bitmap.close) {
                     bitmap.close();
                 }
@@ -1636,11 +1796,61 @@
                 }
             };
 
+            // Heartbeat functions to keep websocket alive
+            function startHeartbeat() {
+                // Clear any existing heartbeat
+                stopHeartbeat();
+
+                // Send ping every 30 seconds
+                heartbeatInterval = setInterval(() => {
+                    if (websocket && websocket.readyState === WebSocket.OPEN) {
+                        try {
+                            // Send ping as msgpack binary message
+                            const pingPayload = { type: "ping" };
+                            const encoded = encoderCandidate(pingPayload);
+                            const payloadBuffer = encoded instanceof Uint8Array
+                                ? encoded
+                                : new Uint8Array(encoded.buffer ? encoded.buffer : encoded);
+                            websocket.send(payloadBuffer);
+
+                            // Set timeout to detect if pong isn't received
+                            heartbeatTimeout = setTimeout(() => {
+                                log("⚠️ Heartbeat timeout - no pong received");
+                                // Connection seems dead, trigger reconnection
+                                if (shouldReconnect) {
+                                    websocket.close();
+                                }
+                            }, HEARTBEAT_TIMEOUT);
+                        } catch (e) {
+                            log("Failed to send heartbeat ping: " + e.message);
+                        }
+                    }
+                }, HEARTBEAT_INTERVAL);
+            }
+
+            function stopHeartbeat() {
+                if (heartbeatInterval) {
+                    clearInterval(heartbeatInterval);
+                    heartbeatInterval = null;
+                }
+                if (heartbeatTimeout) {
+                    clearTimeout(heartbeatTimeout);
+                    heartbeatTimeout = null;
+                }
+            }
+
             const startGeneration = () => {
                 if (websocket && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
                     closeSocket("restarting");
                 }
 
+                // Enable reconnection for this session
+                shouldReconnect = true;
+                reconnectAttempts = 0;
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
 
                 currentSessionId = (window.crypto && window.crypto.randomUUID)
                     ? window.crypto.randomUUID()
@@ -1659,12 +1869,31 @@
 
                 websocket.addEventListener("open", () => {
                     updateStatus("Connected. Waiting for worker...");
+                    // Reset reconnection attempts on successful connection
+                    const wasReconnecting = reconnectAttempts > 0;
+                    reconnectAttempts = 0;
+                    if (wasReconnecting) {
+                        log("✅ Reconnection successful!");
+                    }
+
+                    // Start heartbeat to keep connection alive
+                    startHeartbeat();
                 });
 
                 websocket.addEventListener("message", (event) => {
                     if (typeof event.data === "string") {
                         try {
                             const message = JSON.parse(event.data);
+
+                            // Handle pong response
+                            if (message.type === "pong") {
+                                if (heartbeatTimeout) {
+                                    clearTimeout(heartbeatTimeout);
+                                    heartbeatTimeout = null;
+                                }
+                                return;
+                            }
+
                             if (message.worker) {
                                 log("Worker: " + message.worker);
                             }
@@ -1709,20 +1938,39 @@
                 });
 
                 websocket.addEventListener("close", (event) => {
-                    updateStatus("Session ended (" + event.code + ").");
-                    setButtons(false);
-                    decodeQueue = Promise.resolve();
-                    frameBuffer = [];
-                    stopPlaybackLoop();
-                    // Enable download button after generation completes
-                    if (currentSessionId) {
-                        enableDownload(true);
+                    // Stop heartbeat on close
+                    stopHeartbeat();
+
+                    // Check if we should attempt reconnection
+                    if (shouldReconnect && reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        const delay = reconnectDelay * Math.pow(1.5, reconnectAttempts - 1); // Exponential backoff
+                        updateStatus(`Connection lost. Reconnecting in ${Math.round(delay/1000)}s... (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+
+                        reconnectTimeout = setTimeout(() => {
+                            log(`Attempting to reconnect... (${reconnectAttempts}/${maxReconnectAttempts})`);
+                            connectWebSocket();
+                        }, delay);
+                    } else {
+                        updateStatus("Session ended (" + event.code + ").");
+                        setButtons(false);
+                        decodeQueue = Promise.resolve();
+                        frameBuffer = [];
+                        stopPlaybackLoop();
+                        shouldReconnect = false;
+                        reconnectAttempts = 0;
+
+                        // Enable download button after generation completes
+                        if (currentSessionId) {
+                            enableDownload(true);
+                        }
                     }
                 });
 
-                websocket.addEventListener("error", () => {
-                    updateStatus("WebSocket error. Check server logs.");
-                    stopPlaybackLoop();
+                websocket.addEventListener("error", (event) => {
+                    log("WebSocket error occurred");
+                    updateStatus("WebSocket error. Will attempt to reconnect...");
+                    // Don't stop playback yet - wait for close event
                 });
             };
 
@@ -1761,6 +2009,15 @@
                 if (!websocket) {
                     return;
                 }
+
+                // Disable reconnection when user manually stops
+                shouldReconnect = false;
+                reconnectAttempts = 0;
+                if (reconnectTimeout) {
+                    clearTimeout(reconnectTimeout);
+                    reconnectTimeout = null;
+                }
+
                 updateStatus("Stopping session.");
                 closeSocket("stopped by user");
                 setButtons(false);
